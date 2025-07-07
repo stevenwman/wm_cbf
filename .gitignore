@@ -1,5 +1,5 @@
-**/.pth
-**/.pt
+*.pth
+*.pt
 
 *.egg-info
 experiment_script/log
