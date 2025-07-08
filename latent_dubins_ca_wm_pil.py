@@ -1,21 +1,12 @@
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-import io
-from PIL import Image
 import numpy as np
 import torch
-from collections import defaultdict
 import ruamel.yaml as yaml
 from PytorchReachability.PyHJ.data import Batch
 from PytorchReachability.PyHJ.exploration import GaussianNoise
 from PytorchReachability.PyHJ.utils.net.common import Net
 from PytorchReachability.PyHJ.utils.net.continuous import Actor, Critic
 from PytorchReachability.PyHJ.policy import avoid_DDPGPolicy_annealing as DDPGPolicy
-import pathlib
-import argparse
-import sys
-import gym
-import os
+import pathlib, argparse, sys, gym, os
 from dubin_render import state_to_image_pil_hq
 cwd = os.getcwd()
 print(cwd)
@@ -26,7 +17,6 @@ policy_path = 'policy.pth'
 config_path = 'PytorchReachability/configs.yaml'
 
 sys.path.append(os.path.abspath(dreamer_dir))
-
 import models, tools
 
 def recursive_update(base, update):
@@ -100,7 +90,6 @@ class LatentDubinContinuousAction:
             img_array = state_to_image_pil_hq(s, self.args)
 
             img_obs.append(img_array)
-            plt.close()
 
         demo = {}
         demo['obs'] = {'image': img_obs, 'state': state_obs, 'priv_state': state_gt}
@@ -108,47 +97,6 @@ class LatentDubinContinuousAction:
         demo['dones'] = dones
 
         return demo
-    
-    # def demo_to_traj(self, demos: dict) -> dict:       
-    #     """
-    #     Convert demo dictionary to trajectory ready to be pre-processed
-    #     """
-    #     pixel_keys = sorted(['image'])
-    #     state_keys = sorted(['state'])
-
-    #     traj = demos
-    #     traj_to_pp = {}
-
-    #     for t in range(len(traj["obs"][pixel_keys[0]])):
-
-    #         print(f"Processing timestep {t} of {len(traj['obs'][pixel_keys[0]])}", end='\r')
-    #         transition = defaultdict(np.array)
-    #         for obs_key in pixel_keys:
-    #             transition[obs_key] = traj["obs"][obs_key][t]
-
-    #         if len(state_keys) != 0:
-    #             curr_obs_state_vec = [traj["obs"][obs_key][t] for obs_key in state_keys]
-    #             transition["state"] = curr_obs_state_vec
-                
-    #         transition["privileged_state"] = traj['obs']['priv_state'][t]
-    #         transition["obs_state"] = [np.cos(traj['obs']['state'][t]), 
-    #                                    np.sin(traj['obs']['state'][t])]
-    #         transition["reward"] = np.array(0, dtype=np.float32)
-    #         transition["is_first"] = np.array(t == 0, dtype=np.bool_)
-    #         transition["is_last"] = np.array(traj["dones"][t], dtype=np.bool_)
-    #         transition["is_terminal"] = np.array(traj["dones"][t], dtype=np.bool_)
-    #         transition["discount"] = np.array(1, dtype=np.float32)
-    #         transition["action"] = np.array(traj["actions"][t], dtype=np.float32)
-
-    #         if t == 0: 
-    #             traj_to_pp = {k:self.np_expdim(self.np_expdim(v)) for k,v in transition.items()}
-    #         else: 
-    #             for k,v in traj_to_pp.items():
-    #                 traj_to_pp[k] = np.append(v, self.np_expdim(self.np_expdim(transition[k])), axis=0)
-        
-    #     import pdb; pdb.set_trace()
-
-    #     return traj_to_pp
 
     def demo_to_traj(self, demos: dict) -> dict:       
         """
@@ -291,7 +239,7 @@ class LatentDubinContinuousAction:
         self.wm.eval()
         self.policy.eval()
 
-    def state_to_V(self, state):
+    def priv_state_to_V(self, state):
         s_curr = state
         s_prev = self.dyn_step_back(s_curr)
         data_pts = self.state_to_data(s_prev)
@@ -308,12 +256,32 @@ class LatentDubinContinuousAction:
         feat = self.wm.dynamics.get_feat(latent).detach().cpu().numpy() 
         value = self.evaluate_V(feat)
 
-
-        act = self.find_a(feat)
-        pr_state = proc_data['privileged_state'][0,0].cpu()
+        # act = self.find_a(feat)
+        # pr_state = proc_data['privileged_state'][0,0].cpu()
         # print("privileged state: ", pr_state)
         # print("safe action: ", act)
         # print("safe value: ", value)
         return value
+
+    def obs_to_brt(self, data_pts):
+        """
+        Convert the observation (image and state) to a state and then to 
+        a value and least-restrictive action.
+        """
+        traj = self.demo_to_traj(data_pts)
+
+        bs = traj['state'].shape[0] # batch size
+        action = torch.zeros((bs,1,1), device='cuda:0')
+        is_first = torch.ones((bs,1), device='cuda:0')
+
+        proc_data = self.wm.preprocess(traj)
+        latent,_ = self.wm.dynamics.observe(self.wm.encoder(proc_data), action, is_first)
+        latent['stoch'] = latent['mean']
+        for k, v in latent.items(): latent[k] = v[:, [-1]]
+        feat = self.wm.dynamics.get_feat(latent).detach().cpu().numpy() 
+        value = self.evaluate_V(feat)
+        lr_act = self.find_a(feat)
+
+        return value, lr_act
     
 
