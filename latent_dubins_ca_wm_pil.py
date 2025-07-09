@@ -279,6 +279,9 @@ class LatentDubinContinuousAction:
         latent['stoch'] = latent['mean']
         for k, v in latent.items(): latent[k] = v[:, [-1]]
         feat = self.wm.dynamics.get_feat(latent).detach().cpu().numpy() 
+
+        import pdb; pdb.set_trace()
+
         value = self.evaluate_V(feat)
         lr_act = self.find_a(feat)
 

@@ -25,13 +25,13 @@ def failure_check_batch(state: torch.tensor, xs: torch.tensor, ys: torch.tensor,
 
 def get_init_state(config):    
 	# don't sample inside the failure set
-	states = torch.zeros(3)
+	states = None
 	# while np.linalg.norm(states[:2] - np.array([config.obs_x, config.obs_y])) < config.obs_r:
 	xs = torch.tensor(config.obs_x)
 	ys = torch.tensor(config.obs_y)
 	rs = torch.tensor(config.obs_r)
 
-	while torch.any(failure_check_batch(states, xs, ys, rs)):
+	while states is None or torch.any(failure_check_batch(states, xs, ys, rs)):
 		states = torch.rand(3)
 		states[0] *= (config.x_max-config.buffer) - (config.x_min + config.buffer)
 		states[1] *= (config.y_max-config.buffer) - (config.y_min + config.buffer)
