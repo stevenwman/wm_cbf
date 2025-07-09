@@ -1,5 +1,8 @@
 *.pth
 *.pt
+*.pkl
+
+wandb/
 
 *.egg-info
 **/experiment_script/log

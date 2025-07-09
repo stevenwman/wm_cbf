@@ -12,7 +12,7 @@ dreamer_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../dreame
 sys.path.append(dreamer_dir)
 sys.path.append(cwd)
 import tools
-from dubin_multiobs_render import *
+from dubin_multiobs_render import state_to_image_pil_hq
 
 config_path = 'PytorchReachability/configs_gap.yaml'
 
@@ -50,10 +50,15 @@ def gen_one_traj_img(config):
 	img_obs = []
 	state_gt = []
 	dones = []
+	fails = []
 	acs = []
 	u_max = final_config.turnRate
 	dt = config.dt
 	v = config.speed
+
+	xs = torch.tensor(config.obs_x)
+	ys = torch.tensor(config.obs_y)
+	rs = torch.tensor(config.obs_r)
 
 	for t in range(config.data_length):
 		# random between -u_max and u_max
@@ -73,26 +78,27 @@ def gen_one_traj_img(config):
 			dones.append(1)
 		else:
 			dones.append(0)
-				
+
+		fails.append(torch.any(failure_check_batch(states, xs, ys, rs)).item())
 		acs.append(ac)
 		img_array = state_to_image_pil_hq(states, config)
 		img_obs.append(img_array)
 		states = states_next
 		if dones[-1] == 1:
 			break
-	return state_obs, acs, state_gt, img_obs, dones
+	return state_obs, acs, state_gt, img_obs, dones, fails
 
 def generate_trajs(config):
 	demos = []
 	for i in range(config.num_trajs):
-		state_obs, acs, state_gt, img_obs, dones = gen_one_traj_img(config)
+		state_obs, acs, state_gt, img_obs, dones, fails = gen_one_traj_img(config)
 		demo = {}
 		demo['obs'] = {'image': img_obs, 'state': state_obs, 'priv_state': state_gt}
 		demo['actions'] = acs
 		demo['dones'] = dones
+		demo['fails'] = fails
 		demos.append(demo)
 		print('demo: ', i, "timesteps: ", len(state_obs), end='\r')
-
 	
 	with open('wm_demos'+str(config.size[0])+'_gap.pkl', 'wb') as f:
 		pickle.dump(demos, f)
