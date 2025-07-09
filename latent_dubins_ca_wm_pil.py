@@ -26,9 +26,9 @@ def recursive_update(base, update):
         else:
             base[key] = value
 
-def get_args():
+def get_args(cfg_path=config_path):
     yml = yaml.YAML(typ="safe", pure=True)
-    configs = yml.load(pathlib.Path(f"{cwd}/{config_path}").read_text())
+    configs = yml.load(pathlib.Path(f"{cwd}/{cfg_path}").read_text())
     name_list = ["defaults"]
     defaults = {}
 
