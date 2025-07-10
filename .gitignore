@@ -2,6 +2,7 @@
 *.pt
 *.pkl
 
+logs/
 wandb/
 
 *.egg-info
