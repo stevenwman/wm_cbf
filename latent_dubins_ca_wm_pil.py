@@ -292,10 +292,13 @@ class LatentDubinContinuousAction:
 
         return np.min([value_fn, margin_fn]), lr_act
     
-    def data_to_feat(self, data_pts):
+    def data_to_feat(self, data_pts, action=None):
         traj = self.demo_to_traj(data_pts)
         bs = traj['state'].shape[0] # batch size
-        action = torch.zeros((bs,1,1), device='cuda:0')
+        if action is None:
+            action = torch.zeros((bs,1,1), device='cuda:0')
+        else:
+            action = torch.tensor(action, dtype=torch.float32, device='cuda:0').unsqueeze(0).unsqueeze(0)
         is_first = torch.ones((bs,1), device='cuda:0')
 
         proc_data = self.wm.preprocess(traj)
