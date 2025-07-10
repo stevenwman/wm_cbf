@@ -306,6 +306,6 @@ class LatentDubinContinuousAction:
         return feat
     
     def margin_fn(self, feat):
-        return self.wm.heads["margin"](feat)
+        return torch.tanh(self.wm.heads["margin"](feat))
 
 
