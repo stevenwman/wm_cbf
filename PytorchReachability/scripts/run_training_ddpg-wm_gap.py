@@ -85,7 +85,7 @@ def get_args():
     yml = yaml.YAML(typ="safe", pure=True)
     configs = yml.load(
         #(pathlib.Path(sys.argv[0]).parent / "../configs/config.yaml").read_text()
-        (pathlib.Path(sys.argv[0]).parent / "../configs.yaml").read_text()
+        (pathlib.Path(sys.argv[0]).parent / "../configs_gap.yaml").read_text()
     )
 
     name_list = ["defaults", *config.configs] if config.configs else ["defaults"]
@@ -282,6 +282,8 @@ def make_cache(config, thetas):
     cache = {}
     for theta in thetas:
         v = np.zeros((nx, ny))
+        # xs = np.linspace(-1.1, 1.1, nx, endpoint=True)
+        # ys = np.linspace(-1.1, 1.1, ny, endpoint=True)
         xs = np.linspace(config.x_min, config.x_max, nx, endpoint=True)
         ys = np.linspace(config.y_min, config.y_max, ny, endpoint=True)
 
@@ -298,6 +300,7 @@ def make_cache(config, thetas):
             y_prev = ys_prev[idx[1]]
             thetas.append(theta)
             thetas_prev.append(theta_prev)
+            # imgs_prev.append(get_frame(torch.tensor([x_prev, y_prev, theta_prev]), config))
             imgs_prev.append(state_to_image_pil_hq(np.array([x_prev, y_prev, theta_prev]), config))
             idxs.append(idx)        
             it.iternext()

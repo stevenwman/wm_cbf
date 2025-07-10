@@ -62,3 +62,16 @@ register(
     reward_threshold=1e8,
 )
 
+register(
+    id="dubins-wm-gap",
+    entry_point="PyHJ.reach_rl_gym_envs.dubins-wm-gap:Dubins_WM_gap_Env",
+    max_episode_steps=16,
+    reward_threshold=1e8,
+)
+
+register(
+    id="dubins-wm-gap-nogp",
+    entry_point="PyHJ.reach_rl_gym_envs.dubins-wm-gap-nogp:Dubins_WM_gap_nogp_Env",
+    max_episode_steps=16,
+    reward_threshold=1e8,
+)

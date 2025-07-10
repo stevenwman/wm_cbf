@@ -129,11 +129,13 @@ class Critic(nn.Module):
             dtype=torch.float32,
         ).flatten(1)
         if act is not None:
-            act = torch.as_tensor(
-                act,
-                device=self.device,
-                dtype=torch.float32,
-            ).flatten(1)
+            # act = torch.as_tensor(
+            #     act,
+            #     device=self.device,
+            #     dtype=torch.float32,
+            # ).flatten(1)
+
+            obs = obs.expand(act.shape[0], -1)  # ensure obs and act have same batch size
             obs = torch.cat([obs, act], dim=1)
         logits, hidden = self.preprocess(obs)
         logits = self.last(logits)

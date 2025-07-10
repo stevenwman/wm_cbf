@@ -43,7 +43,7 @@ defaults:
   rssm_train_steps: 10000 # 100000 in paper
   
   # Environment
-  task: 'dubins-wm'
+  task: 'dubins-wm-gap'
   envs: 1
   action_repeat: 1
   time_limit: 100

@@ -145,6 +145,18 @@ class LatentDubinContinuousAction:
         tmp = self.policy.critic(tmp_batch.obs, self.policy(tmp_batch, model="actor_old").act)
         return tmp.cpu().detach().numpy().flatten()
     
+    def evaluate_Q(self, state, action):
+        """
+        Use the safe action-value function to find the value for a given state.
+        """
+        tmp_obs = np.array(state).reshape(state.shape[0],state.shape[-1])
+        tmp_batch = Batch(obs = tmp_obs, info = Batch())
+
+        # import pdb; pdb.set_trace()  # Debugging point to inspect values
+
+        tmp = self.policy.critic(tmp_batch.obs, action)
+        return tmp.cpu().detach().numpy().flatten()
+    
     def _init_wm(self):
         """
         Initialize world model and value function.
@@ -239,37 +251,49 @@ class LatentDubinContinuousAction:
         self.wm.eval()
         self.policy.eval()
 
-    def priv_state_to_V(self, state):
-        s_curr = state
-        s_prev = self.dyn_step_back(s_curr)
-        data_pts = self.state_to_data(s_prev)
-        traj = self.demo_to_traj(data_pts)
+    # def priv_state_to_V(self, state):
+    #     s_curr = state
+    #     s_prev = self.dyn_step_back(s_curr)
+    #     data_pts = self.state_to_data(s_prev)
+    #     traj = self.demo_to_traj(data_pts)
 
-        bs = traj['state'].shape[0] # batch size
-        action = torch.zeros((bs,1,1), device='cuda:0')
-        is_first = torch.ones((bs,1), device='cuda:0')
+    #     bs = traj['state'].shape[0] # batch size
+    #     action = torch.zeros((bs,1,1), device='cuda:0')
+    #     is_first = torch.ones((bs,1), device='cuda:0')
 
-        proc_data = self.wm.preprocess(traj)
-        latent,_ = self.wm.dynamics.observe(self.wm.encoder(proc_data), action, is_first)
-        latent['stoch'] = latent['mean']
-        for k, v in latent.items(): latent[k] = v[:, [-1]]
-        feat = self.wm.dynamics.get_feat(latent).detach().cpu().numpy() 
-        value = self.evaluate_V(feat)
-
-        # act = self.find_a(feat)
-        # pr_state = proc_data['privileged_state'][0,0].cpu()
-        # print("privileged state: ", pr_state)
-        # print("safe action: ", act)
-        # print("safe value: ", value)
-        return value
+    #     proc_data = self.wm.preprocess(traj)
+    #     latent,_ = self.wm.dynamics.observe(self.wm.encoder(proc_data), action, is_first)
+    #     latent['stoch'] = latent['mean']
+    #     for k, v in latent.items(): latent[k] = v[:, [-1]]
+    #     feat = self.wm.dynamics.get_feat(latent).detach().cpu().numpy() 
+    #     value = self.evaluate_V(feat)
+    #     return value
 
     def obs_to_brt(self, data_pts):
         """
         Convert the observation (image and state) to a state and then to 
         a value and least-restrictive action.
         """
-        traj = self.demo_to_traj(data_pts)
+        # traj = self.demo_to_traj(data_pts)
 
+        # bs = traj['state'].shape[0] # batch size
+        # action = torch.zeros((bs,1,1), device='cuda:0')
+        # is_first = torch.ones((bs,1), device='cuda:0')
+        # proc_data = self.wm.preprocess(traj)
+        # latent,_ = self.wm.dynamics.observe(self.wm.encoder(proc_data), action, is_first)
+        # latent['stoch'] = latent['mean']
+        # for k, v in latent.items(): latent[k] = v[:, [-1]]
+        # feat = self.wm.dynamics.get_feat(latent) 
+
+        feat = self.data_to_feat(data_pts)
+        value_fn = self.evaluate_V(feat.detach().cpu().numpy())[0]
+        margin_fn = self.margin_fn(feat)[0][0][0].detach().cpu().numpy()
+        lr_act = self.find_a(feat.detach().cpu().numpy())
+
+        return np.min([value_fn, margin_fn]), lr_act
+    
+    def data_to_feat(self, data_pts):
+        traj = self.demo_to_traj(data_pts)
         bs = traj['state'].shape[0] # batch size
         action = torch.zeros((bs,1,1), device='cuda:0')
         is_first = torch.ones((bs,1), device='cuda:0')
@@ -278,13 +302,10 @@ class LatentDubinContinuousAction:
         latent,_ = self.wm.dynamics.observe(self.wm.encoder(proc_data), action, is_first)
         latent['stoch'] = latent['mean']
         for k, v in latent.items(): latent[k] = v[:, [-1]]
-        feat = self.wm.dynamics.get_feat(latent).detach().cpu().numpy() 
-
-        import pdb; pdb.set_trace()
-
-        value = self.evaluate_V(feat)
-        lr_act = self.find_a(feat)
-
-        return value, lr_act
+        feat = self.wm.dynamics.get_feat(latent) 
+        return feat
     
+    def margin_fn(self, feat):
+        return self.wm.heads["margin"](feat)
+
 

@@ -354,14 +354,14 @@ class Dreamer(nn.Module):
             r_ob = torch.tensor(self._config.obs_r)
 
             if torch.any(failure_check_batch(states, x_ob, y_ob, r_ob)).item():
-            # if (x**2 + y**2) < (self._config.obs_r**2):
                 labels.append(1) # unsafe
             else:
                 labels.append(0) # safe
-            x = x - np.cos(theta)*1*0.05
-            y = y - np.sin(theta)*1*0.05
-            #imgs.append(self.capture_image(np.array([x, y, theta])))
-            # imgs.append(get_frame(torch.tensor([x, y, theta]), self._config))
+            # x = x - np.cos(theta)*1*0.05
+            # y = y - np.sin(theta)*1*0.05
+            x = x - self._config.dt * self._config.speed * np.cos(theta)
+            y = y - self._config.dt * self._config.speed * np.sin(theta)
+
             imgs.append(state_to_image_pil_hq(np.array([x, y, theta]), self._config))
             idxs.append(idx)        
             it.iternext()
