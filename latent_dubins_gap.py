@@ -7,14 +7,17 @@ from PytorchReachability.PyHJ.utils.net.common import Net
 from PytorchReachability.PyHJ.utils.net.continuous import Actor, Critic
 from PytorchReachability.PyHJ.policy import avoid_DDPGPolicy_annealing as DDPGPolicy
 import pathlib, argparse, sys, gym, os
-from dubin_render import state_to_image_pil_hq
+# from dubin_render import state_to_image_pil_hq
+from dubin_multiobs_render import state_to_image_pil_hq
+
 cwd = os.getcwd()
 print(cwd)
 
 dreamer_dir = 'PytorchReachability/dreamerv3-torch'
-ckpt_path = 'rssm_ckpt.pt'
-policy_path = 'policy.pth'
-config_path = 'PytorchReachability/configs.yaml'
+ckpt_path = 'logs/dreamer_dubins_gap/rssm_ckpt.pt'
+# policy_path = 'logs/dreamer_dubins_gap/PyHJ/0709/234357/PyHJ/dubins-wm-gap/wm_actor_activation_ReLU_critic_activation_ReLU_game_gd_steps_1_tau_0.005_training_num_1_buffer_size_40000_c_net_128_3_a1_128_3_gamma_0.9999/noise_0.1_actor_lr_0.0001_critic_lr_0.001_batch_512_step_per_epoch_40000_kwargs_{}_seed_0/epoch_id_16/policy.pth'
+policy_path = 'logs/dreamer_dubins_gap/PyHJ/0709/234357/PyHJ/dubins-wm-gap/wm_actor_activation_ReLU_critic_activation_ReLU_game_gd_steps_1_tau_0.005_training_num_1_buffer_size_40000_c_net_128_3_a1_128_3_gamma_0.9999/noise_0.1_actor_lr_0.0001_critic_lr_0.001_batch_512_step_per_epoch_40000_kwargs_{}_seed_0/epoch_id_8/policy.pth'
+config_path = 'PytorchReachability/configs_gap.yaml'
 
 sys.path.append(os.path.abspath(dreamer_dir))
 import models, tools
@@ -41,9 +44,9 @@ def get_args(cfg_path=config_path):
     final_config = parser.parse_args([])
     return final_config
 
-class LatentDubinContinuousAction:
+class LatentDubinGap:
     """
-    Class to calculate the latent Dubin Continuous Action value function.
+    Class to calculate the latent Dubin Gap value function.
     """
 
     def __init__(self):
@@ -151,9 +154,6 @@ class LatentDubinContinuousAction:
         """
         tmp_obs = np.array(state).reshape(state.shape[0],state.shape[-1])
         tmp_batch = Batch(obs = tmp_obs, info = Batch())
-
-        # import pdb; pdb.set_trace()  # Debugging point to inspect values
-
         tmp = self.policy.critic(tmp_batch.obs, action)
         return tmp.cpu().detach().numpy().flatten()
     
@@ -251,40 +251,11 @@ class LatentDubinContinuousAction:
         self.wm.eval()
         self.policy.eval()
 
-    def priv_state_to_V(self, state):
-        s_curr = state
-        s_prev = self.dyn_step_back(s_curr)
-        data_pts = self.state_to_data(s_prev)
-        traj = self.demo_to_traj(data_pts)
-
-        bs = traj['state'].shape[0] # batch size
-        action = torch.zeros((bs,1,1), device='cuda:0')
-        is_first = torch.ones((bs,1), device='cuda:0')
-
-        proc_data = self.wm.preprocess(traj)
-        latent,_ = self.wm.dynamics.observe(self.wm.encoder(proc_data), action, is_first)
-        latent['stoch'] = latent['mean']
-        for k, v in latent.items(): latent[k] = v[:, [-1]]
-        feat = self.wm.dynamics.get_feat(latent).detach().cpu().numpy() 
-        value = self.evaluate_V(feat)
-        return value
-
     def obs_to_brt(self, data_pts):
         """
         Convert the observation (image and state) to a state and then to 
         a value and least-restrictive action.
         """
-        # traj = self.demo_to_traj(data_pts)
-
-        # bs = traj['state'].shape[0] # batch size
-        # action = torch.zeros((bs,1,1), device='cuda:0')
-        # is_first = torch.ones((bs,1), device='cuda:0')
-        # proc_data = self.wm.preprocess(traj)
-        # latent,_ = self.wm.dynamics.observe(self.wm.encoder(proc_data), action, is_first)
-        # latent['stoch'] = latent['mean']
-        # for k, v in latent.items(): latent[k] = v[:, [-1]]
-        # feat = self.wm.dynamics.get_feat(latent) 
-
         feat = self.data_to_feat(data_pts)
         value_fn = self.evaluate_V(feat.detach().cpu().numpy())[0]
         margin_fn = self.margin_fn(feat)[0][0][0].detach().cpu().numpy()
@@ -310,5 +281,23 @@ class LatentDubinContinuousAction:
     
     def margin_fn(self, feat):
         return torch.tanh(self.wm.heads["margin"](feat))
+    
+    def priv_state_to_V(self, state):
+        s_curr = state
+        s_prev = self.dyn_step_back(s_curr)
+        data_pts = self.state_to_data(s_prev)
+        traj = self.demo_to_traj(data_pts)
+
+        bs = traj['state'].shape[0] # batch size
+        action = torch.zeros((bs,1,1), device='cuda:0')
+        is_first = torch.ones((bs,1), device='cuda:0')
+
+        proc_data = self.wm.preprocess(traj)
+        latent,_ = self.wm.dynamics.observe(self.wm.encoder(proc_data), action, is_first)
+        latent['stoch'] = latent['mean']
+        for k, v in latent.items(): latent[k] = v[:, [-1]]
+        feat = self.wm.dynamics.get_feat(latent).detach().cpu().numpy() 
+        value = self.evaluate_V(feat)
+        return value
 
 
