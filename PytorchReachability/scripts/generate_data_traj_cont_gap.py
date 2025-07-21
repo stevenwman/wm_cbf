@@ -52,6 +52,7 @@ def gen_one_traj_img(config):
 	dones = []
 	fails = []
 	acs = []
+	rews = []
 	u_max = final_config.turnRate
 	dt = config.dt
 	v = config.speed
@@ -78,6 +79,10 @@ def gen_one_traj_img(config):
 			dones.append(1)
 		else:
 			dones.append(0)
+		
+		failure = torch.any(failure_check_batch(states, xs, ys, rs)).item()
+		reward = 0 if failure else -1
+		rews.append(reward)
 
 		fails.append(torch.any(failure_check_batch(states, xs, ys, rs)).item())
 		acs.append(ac)
@@ -86,17 +91,18 @@ def gen_one_traj_img(config):
 		states = states_next
 		if dones[-1] == 1:
 			break
-	return state_obs, acs, state_gt, img_obs, dones, fails
+	return state_obs, acs, state_gt, img_obs, dones, fails, rews
 
 def generate_trajs(config):
 	demos = []
 	for i in range(config.num_trajs):
-		state_obs, acs, state_gt, img_obs, dones, fails = gen_one_traj_img(config)
+		state_obs, acs, state_gt, img_obs, dones, fails, rews = gen_one_traj_img(config)
 		demo = {}
 		demo['obs'] = {'image': img_obs, 'state': state_obs, 'priv_state': state_gt}
 		demo['actions'] = acs
 		demo['dones'] = dones
 		demo['fails'] = fails
+		demo['reward'] = rews
 		demos.append(demo)
 		print('demo: ', i, "timesteps: ", len(state_obs), end='\r')
 	

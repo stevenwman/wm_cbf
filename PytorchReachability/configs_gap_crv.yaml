@@ -14,16 +14,16 @@ defaults:
 
   # offline data parameters
   data_length: 100
-  # num_trajs: 400 # 2000 in paper
-  # num_train_trajs: 380 #1900 in paper
-  num_trajs: 4000 # 2000 in paper
-  num_train_trajs: 3800 #1900 in paper
+  num_trajs: 400 # 2000 in paper
+  num_train_trajs: 380 #1900 in paper
+  # num_trajs: 4000 # 2000 in paper
+  # num_train_trajs: 3800 #1900 in paper
   size: [128, 128]
-  dataset_path: 'wm_demos128_gap.pkl' # '128' should be the same as the size above
+  dataset_path: 'wm_demos128_gap_short.pkl' # '128' should be the same as the size above
   
   # offline dreamer parameters, these are from https://github.com/NM512/dreamerv3-torch
-  logdir: 'logs/dreamer_dubins_gap' 
-  rssm_ckpt_path: logs/dreamer_dubins_gap/rssm_ckpt.pt # change this to whatever the path to your rssm checkpoint is
+  logdir: 'logs/dreamer_dubins_gap_crv1' 
+  rssm_ckpt_path: logs/dreamer_dubins_gap_crv1/rssm_ckpt.pt # change this to whatever the path to your rssm checkpoint is
   traindir: null
   evaldir: null
   offline_traindir: ''
@@ -36,7 +36,7 @@ defaults:
   eval_episode_num: 10
   log_every: 5e2
   reset_every: 0
-  device: 'cuda:0'
+  device: 'cuda:1'
   compile: True
   precision: 32
   debug: False

@@ -146,9 +146,6 @@ class Logger:
         # Log videos to WandB
         wandb.log({name: wandb.Video(value, fps=16, format="mp4")}, step=step)
 
-
-
-
 def save_checkpoint(
     ckpt_name: Union[str, Callable[[int], str]],
     step: int,
@@ -234,9 +231,10 @@ def fill_expert_dataset_dubins(config, cache, is_val_set=False):
                 
             transition["privileged_state"] = traj['obs']['priv_state'][t]
             transition["obs_state"] = [np.cos(traj['obs']['state'][t]), np.sin(traj['obs']['state'][t])]
-            transition["reward"] = np.array(
-                0, dtype=np.float32
-            )
+            # transition["reward"] = np.array(
+            #     0, dtype=np.float32
+            # )
+            transition["reward"] = traj['reward'][t]
 
             # check if state is in obstacle
             # transition["failure"] = np.array(np.linalg.norm(traj['obs']['priv_state'][t][:2] - np.array([config.obs_x, config.obs_y])) < config.obs_r, dtype=np.float32)

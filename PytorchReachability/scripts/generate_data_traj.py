@@ -100,7 +100,6 @@ def gen_one_traj_img(x_min, x_max, y_min, y_max, u_max, radius, dt, v, dpi, rand
       dones.append(0)
     acs.append(ac)
 
-
     img_array = get_frame(states, config)
     img_obs.append(img_array)
     states = states_next
@@ -130,7 +129,6 @@ def recursive_update(base, update):
 
 if __name__=='__main__':      
     parser = argparse.ArgumentParser()
-   
     config, remaining = parser.parse_known_args()
 
     yaml = yaml.YAML(typ="safe", pure=True)
@@ -139,7 +137,6 @@ if __name__=='__main__':
     )
 
     name_list = ["defaults"]
-
     defaults = {}
     for name in name_list:
         recursive_update(defaults, configs[name])
@@ -148,8 +145,6 @@ if __name__=='__main__':
         arg_type = tools.args_type(value)
         parser.add_argument(f"--{key}", type=arg_type, default=arg_type(value))
     final_config = parser.parse_args(remaining)
-
-
 
     num_pts =  final_config.num_pts
     x_min = final_config.x_min
