@@ -291,6 +291,8 @@ class Dreamer(nn.Module):
                 torch.mean(wm.dynamics.get_dist(post).entropy())
             )
         
+
+       
         with tools.RequiresGrad(self._wm.heads["margin"]):
             with torch.amp.autocast("cuda", enabled=wm._use_amp):
                 # failure margin
@@ -355,7 +357,6 @@ class Dreamer(nn.Module):
         self._maybe_log_metrics()
         self._step += 1
         self._logger.step = self._step
-
     def pretrain_regress_obs(self, data, obs_mlp, obs_opt, eval=False):
         wm = self._wm
         actor = self._task_behavior.actor
@@ -423,6 +424,7 @@ class Dreamer(nn.Module):
         print('done!')
 
     def get_latent(self, thetas, imgs):
+
         states = np.expand_dims(np.expand_dims(thetas,1),1)
         imgs = np.expand_dims(imgs, 1)
         dummy_acs = np.zeros((np.shape(thetas)[0], 1))
