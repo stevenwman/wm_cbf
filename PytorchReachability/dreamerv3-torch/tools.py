@@ -58,6 +58,42 @@ class TimeRecording:
         torch.cuda.synchronize()
         print(self._comment, self._st.elapsed_time(self._nd) / 1000)
 
+class DummyLogger:
+    def __init__(self, logdir, step):
+        self._logdir = logdir
+        self._last_step = None
+        self._last_time = None
+        self._scalars = {}
+        self._images = {}
+        self._videos = {}
+        self.step = step
+
+        name = str(logdir).split('/')[-2] + '_' + str(logdir).split('/')[-1]
+
+    def config(self, config_dict):
+        pass
+
+    def scalar(self, name, value):
+        pass
+
+    def image(self, name, value):
+        pass
+
+    def video(self, name, value):
+        pass
+
+    def write(self, fps=False, step=False, fps_namespace="", print_cli=True):
+        pass
+
+    def _compute_fps(self, step):
+        pass
+
+    def offline_scalar(self, name, value, step):
+        pass
+
+    def offline_video(self, name, value, step):
+        pass
+
 
 class Logger:
     def __init__(self, logdir, step):
