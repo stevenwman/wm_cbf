@@ -59,26 +59,10 @@ class Dreamer(nn.Module):
         else:
             feat_size = config.dyn_stoch + config.dyn_deter
 
-        # self._task_behavior = models.ImagBehavior(config, self._wm)
-        
-        # 3. Now that both exist, add the critic components as attributes
-        #    to the world model instance so it can use them during training.
-        # self._wm._critic = self._task_behavior.value
-        # self._wm._slow_critic = self._task_behavior._slow_value
-        # self._wm._critic_opt = self._task_behavior._value_opt
-
         if (
             config.compile and os.name != "nt"
         ):  # compilation is not supported on windows
             self._wm = torch.compile(self._wm)
-            # self._task_behavior = torch.compile(self._task_behavior)
-            
-        # reward = lambda f, s, a: self._wm.heads["reward"](f).mean()
-        # self._expl_behavior = dict(
-        #     greedy=lambda: self._task_behavior,
-        #     random=lambda: expl.Random(config, act_space),
-        #     plan2explore=lambda: expl.Plan2Explore(config, self._wm, reward),
-        # )[config.expl_behavior]().to(self._config.device)
 
         self._make_pretrain_opt()
         self.fill_cache()

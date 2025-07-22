@@ -16,7 +16,7 @@ sys.path.append(dreamer_dir)
 saferl_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '/PyHJ'))
 sys.path.append(saferl_dir)
 print(sys.path)
-import models
+import models_old as models
 import tools
 import ruamel.yaml as yaml
 import wandb

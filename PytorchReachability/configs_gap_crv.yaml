@@ -22,8 +22,8 @@ defaults:
   dataset_path: 'wm_demos128_gap.pkl' # '128' should be the same as the size above
   
   # offline dreamer parameters, these are from https://github.com/NM512/dreamerv3-torch
-  logdir: 'logs/dreamer_dubins_gap_crv3' 
-  rssm_ckpt_path: logs/dreamer_dubins_gap_crv3/rssm_ckpt.pt # change this to whatever the path to your rssm checkpoint is
+  logdir: 'logs/dreamer_dubins_gap_crv4' 
+  rssm_ckpt_path: logs/dreamer_dubins_gap_crv4/rssm_ckpt.pt # change this to whatever the path to your rssm checkpoint is
   traindir: null
   evaldir: null
   offline_traindir: ''
@@ -107,7 +107,8 @@ defaults:
 
   # Behavior.
   discount: 0.997
-  discount_lambda: 0.95
+  # discount_lambda: 0.95
+  discount_lambda: 0
   imag_horizon: 15
   imag_gradient: 'dynamics'
   imag_gradient_mix: 0.0

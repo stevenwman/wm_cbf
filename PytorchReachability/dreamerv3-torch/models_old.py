@@ -119,36 +119,6 @@ class WorldModel(nn.Module):
             margin=config.margin_head["loss_scale"],
         )
 
-        # moving value network to wm
-        self.value = networks.MLP(
-            feat_size,
-            (255,) if config.critic["dist"] == "symlog_disc" else (),
-            config.critic["layers"],
-            config.units,
-            config.act,
-            config.norm,
-            config.critic["dist"],
-            outscale=config.critic["outscale"],
-            device=config.device,
-            name="Value",
-        )
-        if config.critic["slow_target"]:
-            self._slow_value = copy.deepcopy(self.value)
-            self._updates = 0
-        kw = dict(wd=config.weight_decay, opt=config.opt, use_amp=self._use_amp)
-
-        self._value_opt = tools.Optimizer(
-            "value",
-            self.value.parameters(),
-            config.critic["lr"],
-            config.critic["eps"],
-            config.critic["grad_clip"],
-            **kw,
-        )
-        print(
-            f"Optimizer value_opt has {sum(param.numel() for param in self.value.parameters())} variables."
-        )
-
 
     def _init_obs_mlp(self, config, obs_shape):
         if config.dyn_discrete:
@@ -175,30 +145,30 @@ class WorldModel(nn.Module):
         )
         return obs_mlp, obs_recon_opt
     
-    # def _init_lx_mlp(self, config, obs_shape):
-    #     if config.dyn_discrete:
-    #         feat_size = config.dyn_stoch * config.dyn_discrete + config.dyn_deter
-    #     else:
-    #         feat_size = config.dyn_stoch + config.dyn_deter
-    #     lx_mlp = nn.Sequential(
-    #         spectral_norm(nn.Linear(feat_size, 16)),
-    #         nn.ReLU(),
-    #         spectral_norm(nn.Linear(16, obs_shape)),
-    #     )
+    def _init_lx_mlp(self, config, obs_shape):
+        if config.dyn_discrete:
+            feat_size = config.dyn_stoch * config.dyn_discrete + config.dyn_deter
+        else:
+            feat_size = config.dyn_stoch + config.dyn_deter
+        lx_mlp = nn.Sequential(
+            spectral_norm(nn.Linear(feat_size, 16)),
+            nn.ReLU(),
+            spectral_norm(nn.Linear(16, obs_shape)),
+        )
         
-    #     lx_mlp.to(config.device)
-    #     standard_kwargs = {
-    #         "lr": config.lx_lr,
-    #         "eps": config.opt_eps,
-    #         "clip": config.grad_clip,
-    #         "wd": config.weight_decay,
-    #         "opt": config.opt,
-    #         "use_amp": self._use_amp,
-    #     }
-    #     lx_recon_opt = tools.Optimizer(
-    #         "lx_mlp", lx_mlp.parameters(), **standard_kwargs
-    #     )
-    #     return lx_mlp, lx_recon_opt
+        lx_mlp.to(config.device)
+        standard_kwargs = {
+            "lr": config.lx_lr,
+            "eps": config.opt_eps,
+            "clip": config.grad_clip,
+            "wd": config.weight_decay,
+            "opt": config.opt,
+            "use_amp": self._use_amp,
+        }
+        lx_recon_opt = tools.Optimizer(
+            "lx_mlp", lx_mlp.parameters(), **standard_kwargs
+        )
+        return lx_mlp, lx_recon_opt
     
     def _train(self, data):
         # action (batch_size, batch_length, act_dim)
