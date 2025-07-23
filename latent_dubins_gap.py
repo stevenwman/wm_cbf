@@ -16,7 +16,8 @@ print(cwd)
 dreamer_dir = 'PytorchReachability/dreamerv3-torch'
 ckpt_path = 'logs/dreamer_dubins_gap/rssm_ckpt.pt'
 # policy_path = 'logs/dreamer_dubins_gap/PyHJ/0709/234357/PyHJ/dubins-wm-gap/wm_actor_activation_ReLU_critic_activation_ReLU_game_gd_steps_1_tau_0.005_training_num_1_buffer_size_40000_c_net_128_3_a1_128_3_gamma_0.9999/noise_0.1_actor_lr_0.0001_critic_lr_0.001_batch_512_step_per_epoch_40000_kwargs_{}_seed_0/epoch_id_16/policy.pth'
-policy_path = 'logs/dreamer_dubins_gap/PyHJ/0709/234357/PyHJ/dubins-wm-gap/wm_actor_activation_ReLU_critic_activation_ReLU_game_gd_steps_1_tau_0.005_training_num_1_buffer_size_40000_c_net_128_3_a1_128_3_gamma_0.9999/noise_0.1_actor_lr_0.0001_critic_lr_0.001_batch_512_step_per_epoch_40000_kwargs_{}_seed_0/epoch_id_8/policy.pth'
+# policy_path = 'logs/dreamer_dubins_gap/PyHJ/0709/234357/PyHJ/dubins-wm-gap/wm_actor_activation_ReLU_critic_activation_ReLU_game_gd_steps_1_tau_0.005_training_num_1_buffer_size_40000_c_net_128_3_a1_128_3_gamma_0.9999/noise_0.1_actor_lr_0.0001_critic_lr_0.001_batch_512_step_per_epoch_40000_kwargs_{}_seed_0/epoch_id_8/policy.pth'
+policy_path = 'logs/dreamer_dubins_gap/PyHJ/0723/000911/PyHJ/dubins-wm-gap/wm_actor_activation_ReLU_critic_activation_ReLU_game_gd_steps_1_tau_0.005_training_num_1_buffer_size_40000_c_net_128_3_a1_128_3_gamma_0.9999/noise_0.1_actor_lr_0.0001_critic_lr_0.001_batch_512_step_per_epoch_40000_kwargs_{}_seed_0/epoch_id_8/policy.pth'
 config_path = 'PytorchReachability/configs_gap.yaml'
 
 sys.path.append(os.path.abspath(dreamer_dir))
