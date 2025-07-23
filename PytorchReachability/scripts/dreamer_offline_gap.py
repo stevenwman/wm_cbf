@@ -473,9 +473,12 @@ class Dreamer(nn.Module):
         fig, axes = plt.subplots(self.nz, 2, figsize=(12, self.nz*6))
         
         for i in range(self.nz):
+            theta_idx = np.floor(i / self.nz * v.shape[2]).astype(int)
+            theta = i / self.nz * 360
+
             ax = axes[i, 0]
             im = ax.imshow(
-                v[:, :, i].T, interpolation='none', extent=np.array([
+                v[:, :, theta_idx].T, interpolation='none', extent=np.array([
                 self._config.x_min, self._config.x_max, self._config.y_min, self._config.y_max, ]), origin="lower",
                 cmap="seismic", vmin=vmin, vmax=vmax, zorder=-1
             )
@@ -483,11 +486,11 @@ class Dreamer(nn.Module):
                 im, ax=ax, pad=0.01, fraction=0.05, shrink=.95, ticks=[vmin, 0, vmax]
             )
             cbar.ax.set_yticklabels(labels=[vmin, 0, vmax], fontsize=24)
-            ax.set_title(r'$g(x)$', fontsize=18)
+            ax.set_title(rf'$v(x)$ at {theta:.2f} deg', fontsize=18)
 
             ax = axes[i, 1]
             im = ax.imshow(
-                v[:, :, i].T > 0, interpolation='none', extent=np.array([
+                v[:, :, theta_idx].T > 0, interpolation='none', extent=np.array([
                 self._config.x_min, self._config.x_max, self._config.y_min, self._config.y_max, ]), origin="lower",
                 cmap="seismic", vmin=-1, vmax=1, zorder=-1
             )
@@ -495,7 +498,7 @@ class Dreamer(nn.Module):
                 im, ax=ax, pad=0.01, fraction=0.05, shrink=.95, ticks=[vmin, 0, vmax]
             )
             cbar.ax.set_yticklabels(labels=[vmin, 0, vmax], fontsize=24)
-            ax.set_title(r'$v(x)$', fontsize=18)
+            ax.set_title(rf'$v(x)$ > 0 at {theta:.2f} deg', fontsize=18)
             fig.tight_layout()
 
             xs = self._config.obs_x

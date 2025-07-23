@@ -21,7 +21,7 @@ defaults:
   
   # offline dreamer parameters, these are from https://github.com/NM512/dreamerv3-torch
   logdir: 'logs/dreamer_dubins_gap' 
-  rssm_ckpt_path: logs/dreamer_dubins_gap/rssm_ckpt.pt # change this to whatever the path to your rssm checkpoint is
+  rssm_ckpt_path: logs/dreamer_dubins_gap/best_rssm_ckpt_9999_0_00.pt # change this to whatever the path to your rssm checkpoint is
   traindir: null
   evaldir: null
   offline_traindir: ''
