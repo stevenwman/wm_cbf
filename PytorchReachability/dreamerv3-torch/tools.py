@@ -107,7 +107,7 @@ class Logger:
 
         name = str(logdir).split('/')[-2] + '_' + str(logdir).split('/')[-1]
         # Initialize WandB
-        wandb.init(project="eaishw2", config={"logdir": str(logdir)}, name=name)
+        #wandb.init(project="eaishw2", config={"logdir": str(logdir)}, name=name)
 
     def config(self, config_dict):
         # Convert PosixPath objects to strings
@@ -248,7 +248,6 @@ def fill_expert_dataset_dubins(config, cache, is_val_set=False):
         leave=False,
         total=len(demos),
     ):
-        # if is_val_set, we don't fill the first num_train_trajs which are used for training
         if i < num_train and is_val_set:
             continue
         elif i >= num_train and not is_val_set:
@@ -267,13 +266,8 @@ def fill_expert_dataset_dubins(config, cache, is_val_set=False):
                 
             transition["privileged_state"] = traj['obs']['priv_state'][t]
             transition["obs_state"] = [np.cos(traj['obs']['state'][t]), np.sin(traj['obs']['state'][t])]
-            # transition["reward"] = np.array(
-            #     0, dtype=np.float32
-            # )
-            transition["reward"] = traj['reward'][t]
-
+            
             # check if state is in obstacle
-            # transition["failure"] = np.array(np.linalg.norm(traj['obs']['priv_state'][t][:2] - np.array([config.obs_x, config.obs_y])) < config.obs_r, dtype=np.float32)
             transition["failure"] = np.array(traj['fails'][t], dtype=np.float32)
             transition["is_first"] = np.array(t == 0, dtype=np.bool_)
             transition["is_last"] = np.array(traj["dones"][t], dtype=np.bool_)

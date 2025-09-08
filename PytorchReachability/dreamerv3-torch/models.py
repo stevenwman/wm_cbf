@@ -61,35 +61,39 @@ class WorldModel(nn.Module):
         self.heads["decoder"] = networks.MultiDecoder(
             feat_size, shapes, **config.decoder
         )
-        self.heads["margin"] = networks.MLP(
+    
+        self.heads["margin_nogp"] = networks.MLP(
             feat_size,
-            None,
+            (),
             config.margin_head["layers"],
             config.units,
             config.act,
             config.norm,
             device=config.device,
-            name="Margin",
+            return_dist = False,
+            name="Margin NoGP",
         )
-        
-        self.heads["cont"] = networks.MLP(
+
+        self.heads["margin_gp"] = networks.MLP(
             feat_size,
             (),
-            config.cont_head["layers"],
+            config.margin_head["layers"],
             config.units,
             config.act,
             config.norm,
-            dist="binary",
-            outscale=config.cont_head["outscale"],
             device=config.device,
-            name="Cont",
+            return_dist = False,
+            name="Margin GP",
         )
-        
+
         for name in config.grad_heads:
             assert name in self.heads, name
+
+        excluded_params = set(self.heads["margin_nogp"].parameters()) | set(self.heads["margin_gp"].parameters())
+        model_params = [p for p in self.parameters() if p not in excluded_params]
         self._model_opt = tools.Optimizer(
             "model",
-            self.parameters(),
+            model_params,
             config.model_lr,
             config.opt_eps,
             config.grad_clip,
@@ -97,74 +101,49 @@ class WorldModel(nn.Module):
             opt=config.opt,
             use_amp=self._use_amp,
         )
+        
+
         print(
-            f"Optimizer model_opt has {sum(param.numel() for param in self.parameters())} variables."
+            f"Optimizer model_opt has {sum(p.numel() for p in model_params)} trainable variables (excluding margin heads)."
         )
+
+        standard_kwargs = {
+                "lr": config.model_lr,
+                "eps": config.opt_eps,
+                "clip": config.grad_clip,
+                "wd": config.weight_decay,
+                "opt": config.opt,
+                "use_amp": self._use_amp,
+            }
+        margin_nogp_params = {
+                "params": list(self.heads["margin_nogp"].parameters())
+            }
+        margin_gp_params = {
+                "params": list(self.heads["margin_gp"].parameters())
+            }
+
+        self.margin_nogp_params = list(margin_nogp_params["params"])
+        self.margin_nogp_opt = tools.Optimizer(
+            "margin_nogp_opt", [margin_nogp_params], **standard_kwargs
+        )
+
+        self.margin_gp_params = list(margin_gp_params["params"])
+        self.margin_gp_opt = tools.Optimizer(
+            "margin_gp_opt", [margin_gp_params], **standard_kwargs
+        )
+
+        print(
+            f"Optimizer margin_nogp has {sum(p.numel() for p in self.margin_nogp_params)} trainable variables."
+        )
+
+        print(
+            f"Optimizer margin_gp has {sum(p.numel() for p in self.margin_gp_params)} trainable variables."
+        )
+
         # other losses are scaled by 1.0.
         self._scales = dict(
+            reward=config.reward_head["loss_scale"],
             cont=config.cont_head["loss_scale"],
-            margin=config.margin_head["loss_scale"],
-        )
-
-        # moving value network to wm
-        self.value_out = networks.MLP(
-            feat_size,
-            (255,) if config.critic["dist"] == "symlog_disc" else (),
-            config.critic["layers"],
-            config.units,
-            config.act,
-            config.norm,
-            config.critic["dist"],
-            outscale=config.critic["outscale"],
-            device=config.device,
-            name="Value",
-        )
-        # if config.critic["slow_target"]:
-        #     self._slow_value_out = copy.deepcopy(self.value_out)
-        #     self._updates_out = 0
-        
-        kw = dict(wd=config.weight_decay, opt=config.opt, use_amp=self._use_amp)
-
-        self._value_out_opt = tools.Optimizer(
-            "value",
-            self.value_out.parameters(),
-            config.critic["lr"],
-            config.critic["eps"],
-            config.critic["grad_clip"],
-            **kw,
-        )
-
-        self.value_in = networks.MLP(
-            feat_size,
-            (255,) if config.critic["dist"] == "symlog_disc" else (),
-            config.critic["layers"],
-            config.units,
-            config.act,
-            config.norm,
-            config.critic["dist"],
-            outscale=config.critic["outscale"],
-            device=config.device,
-            name="Value",
-        )
-        if config.critic["slow_target"]:
-            self._slow_value_out = copy.deepcopy(self.value_out)
-            self._slow_value_in = copy.deepcopy(self.value_in)
-            self._updates = 0
-
-        self._value_in_opt = tools.Optimizer(
-            "value",
-            self.value_in.parameters(),
-            config.critic["lr"],
-            config.critic["eps"],
-            config.critic["grad_clip"],
-            **kw,
-        )
-
-        print(
-            f"Optimizer value_out_opt has {sum(param.numel() for param in self.value_out.parameters())} variables."
-        )
-        print(
-            f"Optimizer value_in_opt has {sum(param.numel() for param in self.value_in.parameters())} variables."
         )
     
     def _init_obs_mlp(self, config, obs_shape):
