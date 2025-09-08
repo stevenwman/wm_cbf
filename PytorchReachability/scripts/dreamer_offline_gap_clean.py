@@ -6,11 +6,12 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional
 
 
-parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 sys.path.append(parent_dir)
 dreamer = os.path.abspath(os.path.join(os.path.dirname(__file__), '../dreamerv3-torch'))
 sys.path.append(dreamer)
 sys.path.append(str(pathlib.Path(__file__).parent))
+from dubin_multiobs_render import state_to_image_pil_hq
 
 import models
 import tools
@@ -24,7 +25,6 @@ import torch.nn as nn
 import tyro
 from tqdm import trange
 import matplotlib.pyplot as plt
-from dubin_multiobs_render import state_to_image_pil_hq
 
 to_np = lambda x: x.detach().cpu().numpy()
 
