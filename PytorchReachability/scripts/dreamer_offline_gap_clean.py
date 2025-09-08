@@ -23,6 +23,8 @@ import torch
 import torch.nn as nn
 import tyro
 from tqdm import trange
+import matplotlib.pyplot as plt
+from dubin_multiobs_render import state_to_image_pil_hq
 
 to_np = lambda x: x.detach().cpu().numpy()
 
@@ -159,6 +161,7 @@ class Dreamer(nn.Module):
             args.compile and os.name != "nt"
         ):  # compilation is not supported on windows
             self._wm = torch.compile(self._wm)
+        self.fill_cache()
 
 
     def pretrain_model_only(self, data):
@@ -317,6 +320,210 @@ class Dreamer(nn.Module):
         self._maybe_log_metrics()
         self._step += 1
     
+    def fill_cache(self):
+        print('filling cache')
+        nx, ny, nz = self._config.nx, self._config.ny, self._config.nz
+        self.nz =nz
+        self.v = np.zeros((nx, ny, nz))
+        v = self.v
+        xs = np.linspace(self._config.x_min, self._config.x_max, nx)
+        ys = np.linspace(self._config.y_min, self._config.y_max, ny)
+        thetas= np.linspace(0, 2*np.pi, nz, endpoint=True)
+        it = np.nditer(v, flags=['multi_index'])
+        idxs = []  
+        imgs = []
+        labels = []
+        it = np.nditer(v, flags=["multi_index"])
+        while not it.finished:
+            idx = it.multi_index
+            x = xs[idx[0]]
+            y = ys[idx[1]]
+            theta = thetas[idx[2]]
+            states = torch.tensor([x, y, theta])
+
+            x_ob = torch.tensor(self._config.obs_x)
+            y_ob = torch.tensor(self._config.obs_y)
+            r_ob = torch.tensor(self._config.obs_r)
+
+            if torch.any(failure_check_batch(states, x_ob, y_ob, r_ob)).item():
+                labels.append(1) # unsafe
+            else:
+                labels.append(0) # safe
+            # x = x - np.cos(theta)*1*0.05
+            # y = y - np.sin(theta)*1*0.05
+            x = x - self._config.dt * self._config.speed * np.cos(theta)
+            y = y - self._config.dt * self._config.speed * np.sin(theta)
+
+            imgs.append(state_to_image_pil_hq(np.array([x, y, theta]), self._config))
+            idxs.append(idx)        
+            it.iternext()
+        idxs = np.array(idxs)
+        self.idxs=idxs
+        self.safe_idxs = np.where(np.array(labels) == 0)
+        self.unsafe_idxs = np.where(np.array(labels) == 1)
+        self.theta_lin = thetas[idxs[:,2]]
+        self.imgs = imgs
+        print('done!')
+
+    def get_latent(self, thetas, imgs):
+
+        states = np.expand_dims(np.expand_dims(thetas,1),1)
+        imgs = np.expand_dims(imgs, 1)
+        dummy_acs = np.zeros((np.shape(thetas)[0], 1))
+        dummy_acs[np.arange(np.shape(thetas)[0]), :] = 0.
+        firsts = np.ones((np.shape(thetas)[0], 1))
+        lasts = np.zeros((np.shape(thetas)[0], 1))
+        
+        cos = np.cos(states)
+        sin = np.sin(states)
+        states = np.concatenate([cos, sin], axis=-1)
+        data = {'obs_state': states, 'image': imgs, 'action': dummy_acs, 'is_first': firsts, 'is_terminal': lasts}
+
+        data = self._wm.preprocess(data)
+        embed = self._wm.encoder(data)
+
+        post, prior = self._wm.dynamics.observe(
+            embed, data["action"], data["is_first"]
+            )
+        feat = self._wm.dynamics.get_feat(post).detach()
+        with torch.no_grad():  # Disable gradient calculation
+            g_x = self._wm.heads["margin_gp"](feat).detach().cpu().numpy().squeeze()
+            g_x_gp = self._wm.heads["margin_nogp"](feat).detach().cpu().numpy().squeeze()
+        feat = self._wm.dynamics.get_feat(post).detach().cpu().numpy().squeeze()
+
+        return g_x, g_x_gp, feat, post
+    
+    
+    def get_eval_plot(self):
+        self.eval()
+        v = self.v
+        v_gp = self.v
+        g_x = []
+        g_x_gp = []
+        g_xlist, g_xgplist, _, _ = self.get_latent(self.theta_lin, self.imgs)
+        g_x = g_x + g_xlist.tolist()
+        g_x_gp = g_x_gp + g_xgplist.tolist()
+
+        g_x = np.array(g_x)
+        g_x_gp = np.array(g_x_gp)
+        v[self.idxs[:, 0], self.idxs[:, 1], self.idxs[:, 2]] = g_x
+        v_gp[self.idxs[:, 0], self.idxs[:, 1], self.idxs[:, 2]] = g_x_gp
+
+        tp  = np.where(g_x[self.safe_idxs] > 0)
+        fn  = np.where(g_x[self.safe_idxs] <= 0)
+        fp  = np.where(g_x[self.unsafe_idxs] > 0)
+        tn  = np.where(g_x[self.unsafe_idxs] <= 0)
+
+        tp_gp  = np.where(g_x_gp[self.safe_idxs] > 0)
+        fn_gp  = np.where(g_x_gp[self.safe_idxs] <= 0)
+        fp_gp  = np.where(g_x_gp[self.unsafe_idxs] > 0)
+        tn_gp  = np.where(g_x_gp[self.unsafe_idxs] <= 0)
+
+        vmax = 2
+        vmin = -2
+        fig, axes = plt.subplots(self.nz, 2, figsize=(12, self.nz*6))
+        fig_gp, axes_gp = plt.subplots(self.nz, 2, figsize=(12, self.nz*6))
+
+        for i in range(self.nz):
+            ax = axes[i, 0]
+            ax_gp = axes_gp[i, 0]
+            im = ax.imshow(
+                v[:, :, i].T, interpolation='none', extent=np.array([
+                self._config.x_min, self._config.x_max, self._config.y_min, self._config.y_max, ]), origin="lower",
+                cmap="seismic", vmin=vmin, vmax=vmax, zorder=-1
+            )
+            im_gp = ax_gp.imshow(
+                v_gp[:, :, i].T, interpolation='none', extent=np.array([
+                self._config.x_min, self._config.x_max, self._config.y_min, self._config.y_max, ]), origin="lower",
+                cmap="seismic", vmin=vmin, vmax=vmax, zorder=-1
+            )
+            cbar = fig.colorbar(
+                im, ax=ax, pad=0.01, fraction=0.05, shrink=.95, ticks=[vmin, 0, vmax]
+            )
+            cbar_gp = fig_gp.colorbar(
+                im_gp, ax=ax, pad=0.01, fraction=0.05, shrink=.95, ticks=[vmin, 0, vmax]
+            )
+            cbar.ax.set_yticklabels(labels=[vmin, 0, vmax], fontsize=24)
+            cbar_gp.ax.set_yticklabels(labels=[vmin, 0, vmax], fontsize=24)
+            ax.set_title(r'$l(x)$', fontsize=18)
+            ax_gp.set_title(r'$l(x) gp$', fontsize=18)
+
+            ax = axes[i, 1]
+            ax_gp = axes[i, 1]
+            im = ax.imshow(
+                v[:, :, i].T > 0, interpolation='none', extent=np.array([
+                self._config.x_min, self._config.x_max, self._config.y_min, self._config.y_max, ]), origin="lower",
+                cmap="seismic", vmin=-1, vmax=1, zorder=-1
+            )
+            im_gp = ax_gp.imshow(
+                v_gp[:, :, i].T > 0, interpolation='none', extent=np.array([
+                self._config.x_min, self._config.x_max, self._config.y_min, self._config.y_max, ]), origin="lower",
+                cmap="seismic", vmin=-1, vmax=1, zorder=-1
+            )
+            cbar = fig.colorbar(
+                im, ax=ax, pad=0.01, fraction=0.05, shrink=.95, ticks=[vmin, 0, vmax]
+            )
+            cbar_gp = fig_gp.colorbar(
+                im_gp, ax=ax_gp, pad=0.01, fraction=0.05, shrink=.95, ticks=[vmin, 0, vmax]
+            )
+            cbar.ax.set_yticklabels(labels=[vmin, 0, vmax], fontsize=24)
+            cbar_gp.ax.set_yticklabels(labels=[vmin, 0, vmax], fontsize=24)
+            ax.set_title(r'$l(x) > 0$', fontsize=18)
+            ax_gp.set_title(r'$l(x) > 0$', fontsize=18)
+            fig.tight_layout()
+            fig_gp.tight_layout()
+
+            xs = self._config.obs_x
+            ys = self._config.obs_y
+            rs = self._config.obs_r
+            for ob in range(len(xs)):
+                # circle = plt.Circle((0, 0), self._config.obs_r, fill=False, color='blue', label = 'GT boundary')
+                circle = plt.Circle((xs[ob], ys[ob]), rs[ob], fill=False, color='blue', label = 'GT boundary')
+                # Add the circle to the plot
+                axes[i,0].add_patch(circle)
+                circle = plt.Circle((xs[ob], ys[ob]), rs[ob], fill=False, color='blue', label = 'GT boundary')
+                axes_gp[i,0].add_patch(circle)
+
+                # circle2 = plt.Circle((0, 0), self._config.obs_r, fill=False, color='blue', label = 'GT boundary')
+                circle2 = plt.Circle((xs[ob], ys[ob]), rs[ob], fill=False, color='blue', label = 'GT boundary')
+                axes[i,1].add_patch(circle2)
+                circle2 = plt.Circle((xs[ob], ys[ob]), rs[ob], fill=False, color='blue', label = 'GT boundary')
+                axes_gp[i,1].add_patch(circle2)
+
+            axes[i,0].set_aspect('equal')
+            axes[i,1].set_aspect('equal')
+            axes_gp[i,0].set_aspect('equal')
+            axes_gp[i,1].set_aspect('equal')
+
+        fp_g = np.shape(fp)[1]
+        fn_g = np.shape(fn)[1]
+        tp_g = np.shape(tp)[1]
+        tn_g = np.shape(tn)[1]
+        tot = fp_g + fn_g + tp_g + tn_g
+        fig.suptitle(r"$TP={:.0f}\%$ ".format(tp_g/tot * 100) + r"$TN={:.0f}\%$ ".format(tn_g/tot * 100) + r"$FP={:.0f}\%$ ".format(fp_g/tot * 100) +r"$FN={:.0f}\%$".format(fn_g/tot * 100),
+            fontsize=10,)
+        
+        fp_g_gp = np.shape(fp_gp)[1]
+        fn_g_gp = np.shape(fn_gp)[1]
+        tp_g_gp = np.shape(tp_gp)[1]
+        tn_g_gp = np.shape(tn_gp)[1]
+        tot_gp = fp_g_gp + fn_g_gp + tp_g_gp + tn_g_gp
+        fig.suptitle(r"$TP={:.0f}\%$ ".format(tp_g_gp/tot_gp * 100) + r"$TN={:.0f}\%$ ".format(tn_g_gp/tot_gp * 100) + r"$FP={:.0f}\%$ ".format(fp_g_gp/tot_gp * 100) +r"$FN={:.0f}\%$".format(fn_g_gp/tot_gp * 100),
+            fontsize=10,)
+        buf = BytesIO()
+        fig.savefig(buf, format="png")
+        buf.seek(0)
+        plot = Image.open(buf).convert("RGB")
+
+        bufgp = BytesIO()
+        fig_gp.savefig(bufgp, format="png")
+        bufgp.seek(0)
+        plot_gp = Image.open(bufgp).convert("RGB")
+        plt.close(fig)
+        plt.close(fig_gp)
+        self.train()
+        return np.array(plot), tp, fn, fp, tn, np.array(plot_gp), tp_g_gp, fn_g_gp, fp_g_gp, tn_g_gp
+    
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
@@ -371,7 +578,7 @@ if __name__ == "__main__":
         logger,
         expert_dataset,
     ).to(args.device)
-
+    ckpt_name = "rssm_ckpt" 
     for step in trange(
             args.train_steps,
             desc="Training the RSSM",
@@ -383,17 +590,17 @@ if __name__ == "__main__":
                 ((step + 1) % args.eval_every) == 0
                 or step == 1
             ):
+                lx_plot, tp, fn, fp, tn, lx_plot_gp, tp_g, fn_g, fp_g, tn_g = agent.get_eval_plot()
+
+                logger.image("pretrain/lx_plot", np.transpose(lx_plot, (2, 0, 1)))
+                logger.image("pretrain/lx_plot_gp", np.transpose(lx_plot_gp, (2, 0, 1)))
+
                 #score, success = evaluate(
                 #    other_dataset=expert_dataset, eval_prefix="pretrain"
                 #)
-                #lx_plot, tp, fn, fp, tn = agent.get_eval_plot()
-
-                #logger.image("pretrain/lx_plot", np.transpose(lx_plot, (2, 0, 1)))
-                
-                #best_pretrain_success = tools.save_checkpoint(
-                #    ckpt_name, step, success, best_pretrain_success, agent, logdir
-                #)
-                pass
+                best_pretrain_success = tools.save_checkpoint(
+                    ckpt_name, step, 0, best_pretrain_success, agent, logdir
+                )
     
             exp_data = next(expert_dataset)
             agent.pretrain_model_only(exp_data)
