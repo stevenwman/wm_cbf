@@ -12,6 +12,7 @@ dreamer = os.path.abspath(os.path.join(os.path.dirname(__file__), '../dreamerv3-
 sys.path.append(dreamer)
 sys.path.append(str(pathlib.Path(__file__).parent))
 from dubin_multiobs_render import state_to_image_pil_hq
+from generate_data_traj_cont_gap import failure_check_batch
 
 import models
 import tools
@@ -110,13 +111,20 @@ class Args:
 
     gamma_lx: float = 0.75
 
+    x_min: float = -1.5
+    x_max: float = 1.5
+    y_min: float = -1.5
+    y_max: float = 1.5
+    size: List[int] = field(default_factory=lambda: [128, 128])
+    speed: float = 1.
     turnRate: float = 1.25
     x_min: float = -1.5
     x_max: float = 1.5
     y_min: float = -1.5
     y_max: float = 1.5
-    size: int = 128
-    logdir: str = 'logs/dreamer_dubins' 
+    buffer: float = 0.1
+    dt: float = 0.05
+    logdir: str = 'logs/dreamer_dubins'
 
 
     encoder: Dict[str, Any] = field(default_factory=lambda:{'mlp_keys': 'obs_state', 'cnn_keys': 'image', 'act': 'SiLU', 'norm': True, 'cnn_depth': 32, 'kernel_size': 4, 'minres': 4, 'mlp_layers': 5, 'mlp_units': 1024, 'symlog_inputs': True})
@@ -134,6 +142,12 @@ class Args:
     num_train_trajs: int = 3800
 
     discount: int = 1.
+    nx: int = 31
+    ny: int = 31
+    nz: int = 3
+    obs_x: List[float] = field(default_factory=lambda: [0, 0])
+    obs_y: List[float] = field(default_factory=lambda: [0.65, -0.65])
+    obs_r: List[float] = field(default_factory=lambda: [0.5, 0.5])
 
 
 def make_dataset(episodes, args):
@@ -177,9 +191,9 @@ class Dreamer(nn.Module):
                 post, prior = wm.dynamics.observe(
                     embed, data["action"], data["is_first"]
                 )
-                kl_free = self._config.kl_free
-                dyn_scale = self._config.dyn_scale
-                rep_scale = self._config.rep_scale
+                kl_free = self._args.kl_free
+                dyn_scale = self._args.dyn_scale
+                rep_scale = self._args.rep_scale
                 # note: kl_loss is already sum of dyn_loss and rep_loss
                 kl_loss, kl_value, dyn_loss, rep_loss = wm.dynamics.kl_loss(
                     post, prior, kl_free, dyn_scale, rep_scale
@@ -192,7 +206,7 @@ class Dreamer(nn.Module):
                 preds = {}
                 for name, head in wm.heads.items():
                     if name != "margin":
-                        grad_head = name in self._config.grad_heads
+                        grad_head = name in self._args.grad_heads
                         feat = wm.dynamics.get_feat(post)
                         feat = feat if grad_head else feat.detach()
                         pred = head(feat)
@@ -303,7 +317,7 @@ class Dreamer(nn.Module):
             with torch.amp.autocast("cuda", enabled=self._use_amp):
                 pos = self.heads["margin_nogp"](safe_dataset)
                 neg = self.heads["margin_nogp"](unsafe_dataset)
-                gamma = self._config.gamma_lx
+                gamma = self._args.gamma_lx
                 lx_loss = 0.0
                 if pos.numel() > 0:
                     lx_loss += torch.relu(gamma - pos).mean()
@@ -322,12 +336,12 @@ class Dreamer(nn.Module):
     
     def fill_cache(self):
         print('filling cache')
-        nx, ny, nz = self._config.nx, self._config.ny, self._config.nz
+        nx, ny, nz = self._args.nx, self._args.ny, self._args.nz
         self.nz =nz
         self.v = np.zeros((nx, ny, nz))
         v = self.v
-        xs = np.linspace(self._config.x_min, self._config.x_max, nx)
-        ys = np.linspace(self._config.y_min, self._config.y_max, ny)
+        xs = np.linspace(self._args.x_min, self._args.x_max, nx)
+        ys = np.linspace(self._args.y_min, self._args.y_max, ny)
         thetas= np.linspace(0, 2*np.pi, nz, endpoint=True)
         it = np.nditer(v, flags=['multi_index'])
         idxs = []  
@@ -341,9 +355,9 @@ class Dreamer(nn.Module):
             theta = thetas[idx[2]]
             states = torch.tensor([x, y, theta])
 
-            x_ob = torch.tensor(self._config.obs_x)
-            y_ob = torch.tensor(self._config.obs_y)
-            r_ob = torch.tensor(self._config.obs_r)
+            x_ob = torch.tensor(self._args.obs_x)
+            y_ob = torch.tensor(self._args.obs_y)
+            r_ob = torch.tensor(self._args.obs_r)
 
             if torch.any(failure_check_batch(states, x_ob, y_ob, r_ob)).item():
                 labels.append(1) # unsafe
@@ -351,10 +365,10 @@ class Dreamer(nn.Module):
                 labels.append(0) # safe
             # x = x - np.cos(theta)*1*0.05
             # y = y - np.sin(theta)*1*0.05
-            x = x - self._config.dt * self._config.speed * np.cos(theta)
-            y = y - self._config.dt * self._config.speed * np.sin(theta)
+            x = x - self._args.dt * self._args.speed * np.cos(theta)
+            y = y - self._args.dt * self._args.speed * np.sin(theta)
 
-            imgs.append(state_to_image_pil_hq(np.array([x, y, theta]), self._config))
+            imgs.append(state_to_image_pil_hq(np.array([x, y, theta]), self._args))
             idxs.append(idx)        
             it.iternext()
         idxs = np.array(idxs)
@@ -429,12 +443,12 @@ class Dreamer(nn.Module):
             ax_gp = axes_gp[i, 0]
             im = ax.imshow(
                 v[:, :, i].T, interpolation='none', extent=np.array([
-                self._config.x_min, self._config.x_max, self._config.y_min, self._config.y_max, ]), origin="lower",
+                self._args.x_min, self._args.x_max, self._args.y_min, self._args.y_max, ]), origin="lower",
                 cmap="seismic", vmin=vmin, vmax=vmax, zorder=-1
             )
             im_gp = ax_gp.imshow(
                 v_gp[:, :, i].T, interpolation='none', extent=np.array([
-                self._config.x_min, self._config.x_max, self._config.y_min, self._config.y_max, ]), origin="lower",
+                self._args.x_min, self._args.x_max, self._args.y_min, self._args.y_max, ]), origin="lower",
                 cmap="seismic", vmin=vmin, vmax=vmax, zorder=-1
             )
             cbar = fig.colorbar(
@@ -452,12 +466,12 @@ class Dreamer(nn.Module):
             ax_gp = axes[i, 1]
             im = ax.imshow(
                 v[:, :, i].T > 0, interpolation='none', extent=np.array([
-                self._config.x_min, self._config.x_max, self._config.y_min, self._config.y_max, ]), origin="lower",
+                self._args.x_min, self._args.x_max, self._args.y_min, self._args.y_max, ]), origin="lower",
                 cmap="seismic", vmin=-1, vmax=1, zorder=-1
             )
             im_gp = ax_gp.imshow(
                 v_gp[:, :, i].T > 0, interpolation='none', extent=np.array([
-                self._config.x_min, self._config.x_max, self._config.y_min, self._config.y_max, ]), origin="lower",
+                self._args.x_min, self._args.x_max, self._args.y_min, self._args.y_max, ]), origin="lower",
                 cmap="seismic", vmin=-1, vmax=1, zorder=-1
             )
             cbar = fig.colorbar(
@@ -473,18 +487,18 @@ class Dreamer(nn.Module):
             fig.tight_layout()
             fig_gp.tight_layout()
 
-            xs = self._config.obs_x
-            ys = self._config.obs_y
-            rs = self._config.obs_r
+            xs = self._args.obs_x
+            ys = self._args.obs_y
+            rs = self._args.obs_r
             for ob in range(len(xs)):
-                # circle = plt.Circle((0, 0), self._config.obs_r, fill=False, color='blue', label = 'GT boundary')
+                # circle = plt.Circle((0, 0), self._args.obs_r, fill=False, color='blue', label = 'GT boundary')
                 circle = plt.Circle((xs[ob], ys[ob]), rs[ob], fill=False, color='blue', label = 'GT boundary')
                 # Add the circle to the plot
                 axes[i,0].add_patch(circle)
                 circle = plt.Circle((xs[ob], ys[ob]), rs[ob], fill=False, color='blue', label = 'GT boundary')
                 axes_gp[i,0].add_patch(circle)
 
-                # circle2 = plt.Circle((0, 0), self._config.obs_r, fill=False, color='blue', label = 'GT boundary')
+                # circle2 = plt.Circle((0, 0), self._args.obs_r, fill=False, color='blue', label = 'GT boundary')
                 circle2 = plt.Circle((xs[ob], ys[ob]), rs[ob], fill=False, color='blue', label = 'GT boundary')
                 axes[i,1].add_patch(circle2)
                 circle2 = plt.Circle((xs[ob], ys[ob]), rs[ob], fill=False, color='blue', label = 'GT boundary')
@@ -541,7 +555,7 @@ if __name__ == "__main__":
         np.float32(midpoint - interval/2),
         np.float32(midpoint + interval/2),
     )
-    image_size = args.size #128
+    image_size = args.size[0] #128
     image_observation_space = gym.spaces.Box(
         low=0, high=255, shape=(image_size, image_size, 3), dtype=np.uint8
     )
