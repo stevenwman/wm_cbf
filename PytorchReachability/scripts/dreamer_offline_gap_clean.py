@@ -4,7 +4,8 @@ import sys
 import pathlib
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional
-
+from io import BytesIO
+from PIL import Image
 
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 sys.path.append(parent_dir)
@@ -137,7 +138,8 @@ class Args:
     grad_heads: List[str] = field(default_factory=lambda: ['decoder'])
 
     train_steps: int = 50_000
-    dataset_path: str = '/home/kensuke/WM_CBF/wm_cbf/wm_demos128_gap.pkl'
+    # dataset_path: str = '/home/kensuke/WM_CBF/wm_cbf/wm_demos128_gap.pkl'
+    dataset_path: str = '/home/clown2/Desktop/Work/Research/wm_cbf/wm_demos128_gap.pkl'
     num_trajs: int = 4000 # 2000 in paper
     num_train_trajs: int = 3800
 
@@ -159,6 +161,7 @@ def make_dataset(episodes, args):
 class Dreamer(nn.Module):
     def __init__(self, obs_space, act_space, args, logger, dataset, expert_dataset=None):
         super(Dreamer, self).__init__()
+        self._logger = logger
         self._args = args
         self._should_log = tools.Every(args.log_every)
         batch_steps = args.batch_size * args.batch_length
@@ -177,11 +180,18 @@ class Dreamer(nn.Module):
             self._wm = torch.compile(self._wm)
         self.fill_cache()
 
+        model_params = {
+                "params": list(self._wm.encoder.parameters())
+                + list(self._wm.dynamics.parameters())
+                + list(self._wm.heads["decoder"].parameters())
+            }
+        self.pretrain_params = list(model_params["params"])
+
 
     def pretrain_model_only(self, data):
         metrics = {}
         wm = self._wm
-        data = wm.preprocess(data)
+        data = wm.preprocess(data)        
         
         # world model reconstruction + KL loss
         with tools.RequiresGrad(wm):
@@ -205,7 +215,8 @@ class Dreamer(nn.Module):
 
                 preds = {}
                 for name, head in wm.heads.items():
-                    if name != "margin":
+                    # if name != "margin":
+                    if 'margin' not in name:
                         grad_head = name in self._args.grad_heads
                         feat = wm.dynamics.get_feat(post)
                         feat = feat if grad_head else feat.detach()
@@ -222,7 +233,11 @@ class Dreamer(nn.Module):
                     
                 recon_loss = sum(losses.values())
                 model_loss = kl_loss + recon_loss
-                metrics = self.pretrain_opt(
+                # metrics = self.pretrain_opt(
+                #     torch.mean(model_loss), self.pretrain_params
+                # )
+                metrics = wm._model_opt(
+                    # TODO: look at where params are
                     torch.mean(model_loss), self.pretrain_params
                 )
 
@@ -241,17 +256,18 @@ class Dreamer(nn.Module):
             )
         
 
-        feat_detached = self.dynamics.get_feat(post).detach()
+        feat_detached = wm.dynamics.get_feat(post).detach()
         safe_data = torch.where(data["failure"] == 0.)
         unsafe_data = torch.where(data["failure"] == 1.)
         safe_dataset = feat_detached[safe_data]
         unsafe_dataset = feat_detached[unsafe_data]
 
         # gradient penalty head
-        with tools.RequiresGrad(self.heads["margin_gp"]):
-            with torch.amp.autocast("cuda", enabled=self._use_amp):
-                pos = self.heads["margin_gp"](safe_dataset)
-                neg = self.heads["margin_gp"](unsafe_dataset)
+        with tools.RequiresGrad(wm.heads["margin_gp"]):
+            with torch.amp.autocast("cuda", enabled=wm._use_amp):
+                pos = wm.heads["margin_gp"](safe_dataset)
+                neg = wm.heads["margin_gp"](unsafe_dataset)
+                gamma = self._args.gamma_lx
                 #print('gp', pos.shape, neg.shape)
                 N = max(pos.numel(), neg.numel())
                 gp_loss=torch.tensor(0., device=pos.device)
@@ -274,7 +290,7 @@ class Dreamer(nn.Module):
                     alpha = torch.rand(pos_data.shape[0], 1, device=pos_data.device)
                     interpolates = alpha * pos_data + (1 - alpha) * neg_data
                     interpolates.requires_grad_(True)
-                    disc_interpolates = self.heads["margin_gp"](interpolates)
+                    disc_interpolates = wm.heads["margin_gp"](interpolates)
 
                     gradients = torch.autograd.grad(
                         outputs=disc_interpolates,
@@ -289,11 +305,9 @@ class Dreamer(nn.Module):
 
                     gp_loss = ((gradients_norm - 0.1) ** 2).mean()
 
-                
-
-                
                 relu_loss = torch.tensor(0., device=pos.device)
                 zero_sum_loss = torch.tensor(0., device=pos.device)
+                
                 if pos.numel() > 0:
                     pos_mean = pos.mean()
                     zero_sum_loss -= pos_mean
@@ -302,21 +316,21 @@ class Dreamer(nn.Module):
                     neg_mean = neg.mean()
                     zero_sum_loss += neg_mean
                     relu_loss += torch.relu(gamma + neg).mean()
-                print(neg.numel(), pos.numel())
+                # print(neg.numel(), pos.numel())
                 relu_weight = 100
                 gp_weight = 10
                 loss = zero_sum_loss + relu_weight * relu_loss + gp_weight * gp_loss
                 
-                metrics.update(self.margin_gp_opt(loss, self.heads["margin_gp"].parameters()))
+                metrics.update(wm.margin_gp_opt(loss, wm.heads["margin_gp"].parameters()))
                 metrics["margin_gp"] = gp_loss.item()
                 metrics["sign_loss"] = to_np(relu_loss)
                 metrics["gp_loss"] = to_np(gp_loss)
 
         # no gradient penalty head
-        with tools.RequiresGrad(self.heads["margin_nogp"]):
-            with torch.amp.autocast("cuda", enabled=self._use_amp):
-                pos = self.heads["margin_nogp"](safe_dataset)
-                neg = self.heads["margin_nogp"](unsafe_dataset)
+        with tools.RequiresGrad(wm.heads["margin_nogp"]):
+            with torch.amp.autocast("cuda", enabled=wm._use_amp):
+                pos = wm.heads["margin_nogp"](safe_dataset)
+                neg = wm.heads["margin_nogp"](unsafe_dataset)
                 gamma = self._args.gamma_lx
                 lx_loss = 0.0
                 if pos.numel() > 0:
@@ -325,7 +339,7 @@ class Dreamer(nn.Module):
                     lx_loss += torch.relu(gamma + neg).mean()
 
                 metrics["margin_nogp"] = lx_loss.item()
-                metrics.update(self.margin_nogp_opt(lx_loss, self.heads["margin_nogp"].parameters()))
+                metrics.update(wm.margin_nogp_opt(lx_loss, wm.heads["margin_nogp"].parameters()))
     
         metrics = {
             f"model_only_pretrain/{k}": v for k, v in metrics.items()
@@ -333,6 +347,32 @@ class Dreamer(nn.Module):
         self._update_running_metrics(metrics)
         self._maybe_log_metrics()
         self._step += 1
+
+    def _maybe_log_metrics(self, video_pred_log=False):
+        if self._logger is not None:
+            logged = False
+            if self._should_log(self._step):
+                for name, values in self._metrics.items():
+                    if not np.isnan(np.mean(values)):
+                        self._logger.scalar(name, float(np.mean(values)))
+                        self._metrics[name] = []
+                logged = True
+
+            if video_pred_log and self._should_log_video(self._step):
+                video_pred, video_pred2 = self._wm.video_pred(next(self._dataset))
+                self._logger.video("train_openl_agent", to_np(video_pred))
+                self._logger.video("train_openl_hand", to_np(video_pred2))
+                logged = True
+
+            if logged:
+                self._logger.write(fps=True)
+
+    def _update_running_metrics(self, metrics):
+        for name, value in metrics.items():
+            if name not in self._metrics.keys():
+                self._metrics[name] = [value]
+            else:
+                self._metrics[name].append(value)
     
     def fill_cache(self):
         print('filling cache')
@@ -593,6 +633,7 @@ if __name__ == "__main__":
         expert_dataset,
     ).to(args.device)
     ckpt_name = "rssm_ckpt" 
+    best_pretrain_success = float("inf")
     for step in trange(
             args.train_steps,
             desc="Training the RSSM",
