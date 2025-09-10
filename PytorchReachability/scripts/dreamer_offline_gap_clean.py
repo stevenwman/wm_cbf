@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional
 from io import BytesIO
 from PIL import Image
+import functools
 
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 sys.path.append(parent_dir)
@@ -62,9 +63,7 @@ class Args:
     """logging frequency in terms of environment steps"""
 
     parallel: bool = True
-    eval_every: int = 10_000
     eval_episode_num: int = 10
-    log_every: int = 10_000
     reset_every: int =  0
     device: str = 'cuda:0'
     compile: bool = True
@@ -75,8 +74,8 @@ class Args:
     action_repeat: int = 1
     steps: int = 10_000_000
 
-    eval_every: int = 10_000
-    log_every: int = 10_000
+    eval_every: int = 500
+    log_every: int = 500
     #time_limit: int = 1e3
     offline_traindir: str = ''
     offline_evaldir: str = ''
@@ -111,6 +110,9 @@ class Args:
     opt: str = 'adam'
 
     gamma_lx: float = 0.75
+    relu_weight: float = 100
+    gp_weight: float = 10
+    zero_sum_weight: float = 0.01
 
     x_min: float = -1.5
     x_max: float = 1.5
@@ -317,9 +319,10 @@ class Dreamer(nn.Module):
                     zero_sum_loss += neg_mean
                     relu_loss += torch.relu(gamma + neg).mean()
                 # print(neg.numel(), pos.numel())
-                relu_weight = 100
-                gp_weight = 10
-                loss = zero_sum_loss + relu_weight * relu_loss + gp_weight * gp_loss
+                relu_weight = args.relu_weight
+                gp_weight = args.gp_weight
+                zero_sum_weight = args.zero_sum_weight
+                loss = zero_sum_weight * zero_sum_loss + relu_weight * relu_loss + gp_weight * gp_loss
                 
                 metrics.update(wm.margin_gp_opt(loss, wm.heads["margin_gp"].parameters()))
                 metrics["margin_gp"] = gp_loss.item()
@@ -331,7 +334,8 @@ class Dreamer(nn.Module):
             with torch.amp.autocast("cuda", enabled=wm._use_amp):
                 pos = wm.heads["margin_nogp"](safe_dataset)
                 neg = wm.heads["margin_nogp"](unsafe_dataset)
-                gamma = self._args.gamma_lx
+                # gamma = self._args.gamma_lx
+                gamma = 0.75
                 lx_loss = 0.0
                 if pos.numel() > 0:
                     lx_loss += torch.relu(gamma - pos).mean()
@@ -347,6 +351,7 @@ class Dreamer(nn.Module):
         self._update_running_metrics(metrics)
         self._maybe_log_metrics()
         self._step += 1
+        self._logger.step = self._step
 
     def _maybe_log_metrics(self, video_pred_log=False):
         if self._logger is not None:
@@ -450,16 +455,19 @@ class Dreamer(nn.Module):
     
     def get_eval_plot(self):
         self.eval()
-        v = self.v
-        v_gp = self.v
+        v = self.v.copy()
+        v_gp = self.v.copy()
+        
         g_x = []
         g_x_gp = []
+        
         g_xlist, g_xgplist, _, _ = self.get_latent(self.theta_lin, self.imgs)
         g_x = g_x + g_xlist.tolist()
         g_x_gp = g_x_gp + g_xgplist.tolist()
 
         g_x = np.array(g_x)
         g_x_gp = np.array(g_x_gp)
+
         v[self.idxs[:, 0], self.idxs[:, 1], self.idxs[:, 2]] = g_x
         v_gp[self.idxs[:, 0], self.idxs[:, 1], self.idxs[:, 2]] = g_x_gp
 
@@ -480,56 +488,60 @@ class Dreamer(nn.Module):
 
         for i in range(self.nz):
             ax = axes[i, 0]
-            ax_gp = axes_gp[i, 0]
             im = ax.imshow(
                 v[:, :, i].T, interpolation='none', extent=np.array([
                 self._args.x_min, self._args.x_max, self._args.y_min, self._args.y_max, ]), origin="lower",
                 cmap="seismic", vmin=vmin, vmax=vmax, zorder=-1
             )
+            cbar = fig.colorbar(
+                im, ax=ax, pad=0.01, fraction=0.05, shrink=.95, ticks=[vmin, 0, vmax]
+            )
+            cbar.ax.set_yticklabels(labels=[vmin, 0, vmax], fontsize=24)
+            ax.set_title(r'$l(x)$', fontsize=18)
+
+            ax_gp = axes_gp[i, 0]
             im_gp = ax_gp.imshow(
                 v_gp[:, :, i].T, interpolation='none', extent=np.array([
                 self._args.x_min, self._args.x_max, self._args.y_min, self._args.y_max, ]), origin="lower",
                 cmap="seismic", vmin=vmin, vmax=vmax, zorder=-1
             )
-            cbar = fig.colorbar(
-                im, ax=ax, pad=0.01, fraction=0.05, shrink=.95, ticks=[vmin, 0, vmax]
-            )
             cbar_gp = fig_gp.colorbar(
-                im_gp, ax=ax, pad=0.01, fraction=0.05, shrink=.95, ticks=[vmin, 0, vmax]
+                im_gp, ax=ax_gp, pad=0.01, fraction=0.05, shrink=.95, ticks=[vmin, 0, vmax]
             )
-            cbar.ax.set_yticklabels(labels=[vmin, 0, vmax], fontsize=24)
             cbar_gp.ax.set_yticklabels(labels=[vmin, 0, vmax], fontsize=24)
-            ax.set_title(r'$l(x)$', fontsize=18)
+            
             ax_gp.set_title(r'$l(x) gp$', fontsize=18)
 
             ax = axes[i, 1]
-            ax_gp = axes[i, 1]
             im = ax.imshow(
                 v[:, :, i].T > 0, interpolation='none', extent=np.array([
                 self._args.x_min, self._args.x_max, self._args.y_min, self._args.y_max, ]), origin="lower",
                 cmap="seismic", vmin=-1, vmax=1, zorder=-1
             )
+            cbar = fig.colorbar(
+                im, ax=ax, pad=0.01, fraction=0.05, shrink=.95, ticks=[vmin, 0, vmax]
+            )
+            cbar.ax.set_yticklabels(labels=[vmin, 0, vmax], fontsize=24)
+            ax.set_title(r'$l(x) > 0$', fontsize=18)
+            fig.tight_layout()
+
+            ax_gp = axes_gp[i, 1]
             im_gp = ax_gp.imshow(
                 v_gp[:, :, i].T > 0, interpolation='none', extent=np.array([
                 self._args.x_min, self._args.x_max, self._args.y_min, self._args.y_max, ]), origin="lower",
                 cmap="seismic", vmin=-1, vmax=1, zorder=-1
             )
-            cbar = fig.colorbar(
-                im, ax=ax, pad=0.01, fraction=0.05, shrink=.95, ticks=[vmin, 0, vmax]
-            )
             cbar_gp = fig_gp.colorbar(
                 im_gp, ax=ax_gp, pad=0.01, fraction=0.05, shrink=.95, ticks=[vmin, 0, vmax]
             )
-            cbar.ax.set_yticklabels(labels=[vmin, 0, vmax], fontsize=24)
             cbar_gp.ax.set_yticklabels(labels=[vmin, 0, vmax], fontsize=24)
-            ax.set_title(r'$l(x) > 0$', fontsize=18)
             ax_gp.set_title(r'$l(x) > 0$', fontsize=18)
-            fig.tight_layout()
             fig_gp.tight_layout()
 
             xs = self._args.obs_x
             ys = self._args.obs_y
             rs = self._args.obs_r
+            
             for ob in range(len(xs)):
                 # circle = plt.Circle((0, 0), self._args.obs_r, fill=False, color='blue', label = 'GT boundary')
                 circle = plt.Circle((xs[ob], ys[ob]), rs[ob], fill=False, color='blue', label = 'GT boundary')
@@ -562,25 +574,52 @@ class Dreamer(nn.Module):
         tp_g_gp = np.shape(tp_gp)[1]
         tn_g_gp = np.shape(tn_gp)[1]
         tot_gp = fp_g_gp + fn_g_gp + tp_g_gp + tn_g_gp
-        fig.suptitle(r"$TP={:.0f}\%$ ".format(tp_g_gp/tot_gp * 100) + r"$TN={:.0f}\%$ ".format(tn_g_gp/tot_gp * 100) + r"$FP={:.0f}\%$ ".format(fp_g_gp/tot_gp * 100) +r"$FN={:.0f}\%$".format(fn_g_gp/tot_gp * 100),
+        fig_gp.suptitle(r"$TP={:.0f}\%$ ".format(tp_g_gp/tot_gp * 100) + r"$TN={:.0f}\%$ ".format(tn_g_gp/tot_gp * 100) + r"$FP={:.0f}\%$ ".format(fp_g_gp/tot_gp * 100) +r"$FN={:.0f}\%$".format(fn_g_gp/tot_gp * 100),
             fontsize=10,)
+        
         buf = BytesIO()
         fig.savefig(buf, format="png")
+        plt.close(fig)
         buf.seek(0)
         plot = Image.open(buf).convert("RGB")
+        buf.close()
 
         bufgp = BytesIO()
         fig_gp.savefig(bufgp, format="png")
+        plt.close(fig_gp)
         bufgp.seek(0)
         plot_gp = Image.open(bufgp).convert("RGB")
-        plt.close(fig)
-        plt.close(fig_gp)
+        bufgp.close()
+        
         self.train()
         return np.array(plot), tp, fn, fp, tn, np.array(plot_gp), tp_g_gp, fn_g_gp, fp_g_gp, tn_g_gp
     
 
 if __name__ == "__main__":
     args = tyro.cli(Args)
+
+    def evaluate(other_dataset=None, eval_prefix=""):
+        agent.eval()
+        
+        eval_policy = functools.partial(agent, training=False)
+
+        # For Logging (1 episode)
+        if args.video_pred_log:
+            video_pred = agent._wm.video_pred(next(eval_dataset))
+            logger.video("eval_recon/openl_agent", to_np(video_pred))
+
+            if other_dataset:
+                video_pred = agent._wm.video_pred(next(other_dataset))
+                logger.video("train_recon/openl_agent", to_np(video_pred))
+
+        
+        logger.write(step=logger.step)
+        #recon_eval = eval_obs_recon()  # testing observation reconstruction
+
+        agent.train()
+        return 0, 0 #recon_eval, recon_eval
+
+
 
     # defining environment 
     action_space = gym.spaces.Box(
@@ -623,6 +662,19 @@ if __name__ == "__main__":
     print("Length of validation data:", len(expert_val_eps))
 
     logdir = pathlib.Path(args.logdir).expanduser()
+
+    logdir = pathlib.Path(args.logdir).expanduser()
+    args.traindir = logdir / "train_eps"
+    args.evaldir = logdir / "eval_eps"
+    args.steps //= args.action_repeat
+    args.eval_every //= args.action_repeat
+    args.log_every //= args.action_repeat
+
+    print("Logdir", logdir)
+    logdir.mkdir(parents=True, exist_ok=True)
+    args.traindir.mkdir(parents=True, exist_ok=True)
+    args.evaldir.mkdir(parents=True, exist_ok=True)
+    # step in logger is environmental step
     logger = tools.Logger(logdir, 0)
 
     agent = Dreamer(
@@ -650,9 +702,9 @@ if __name__ == "__main__":
                 logger.image("pretrain/lx_plot", np.transpose(lx_plot, (2, 0, 1)))
                 logger.image("pretrain/lx_plot_gp", np.transpose(lx_plot_gp, (2, 0, 1)))
 
-                #score, success = evaluate(
-                #    other_dataset=expert_dataset, eval_prefix="pretrain"
-                #)
+                score, success = evaluate(
+                   other_dataset=expert_dataset, eval_prefix="pretrain"
+                )
                 best_pretrain_success = tools.save_checkpoint(
                     ckpt_name, step, 0, best_pretrain_success, agent, logdir
                 )
