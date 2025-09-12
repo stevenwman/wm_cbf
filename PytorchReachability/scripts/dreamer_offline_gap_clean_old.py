@@ -84,7 +84,7 @@ class Args:
     dyn_hidden: int = 512
     dyn_deter: int = 512
     dyn_stoch: int = 32
-    dyn_discrete: int = 32
+    dyn_discrete: int = 0
     dyn_rec_depth: int = 1
     dyn_mean_act: str = 'none'
     dyn_std_act: str = 'sigmoid2'
@@ -313,12 +313,12 @@ class Dreamer(nn.Module):
                 if pos.numel() > 0:
                     pos_mean = pos.mean()
                     zero_sum_loss -= pos_mean
-                    relu_loss += torch.relu(gamma - pos).mean()
+                    relu_loss += torch.relu(gamma - pos.mean())
                 if neg.numel() >0:
                     neg_mean = neg.mean()
                     zero_sum_loss += neg_mean
-                    relu_loss += torch.relu(gamma + neg).mean()
-                # print(neg.numel(), pos.numel())
+                    relu_loss += torch.relu(gamma + neg.mean())
+
                 relu_weight = args.relu_weight
                 gp_weight = args.gp_weight
                 zero_sum_weight = args.zero_sum_weight

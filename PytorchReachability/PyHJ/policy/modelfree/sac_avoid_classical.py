@@ -94,11 +94,13 @@ class avoid_SACPolicy_annealing(DDPGPolicy):
         self._alpha: Union[float, torch.Tensor]
         if isinstance(alpha, tuple):
             self._is_auto_alpha = True
+            print("Auto alpha is enabled")
             self._target_entropy, self._log_alpha, self._alpha_optim = alpha
             assert alpha[1].shape == torch.Size([1]) and alpha[1].requires_grad
             self._alpha = self._log_alpha.detach().exp()
         else:
             self._alpha = alpha
+            print(f"Constant alpha: {self._alpha}")
 
         self._deterministic_eval = deterministic_eval
         self.__eps = np.finfo(np.float32).eps.item()

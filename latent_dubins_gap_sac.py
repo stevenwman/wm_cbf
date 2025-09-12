@@ -4,8 +4,8 @@ import ruamel.yaml as yaml
 from PytorchReachability.PyHJ.data import Batch
 from PytorchReachability.PyHJ.exploration import GaussianNoise
 from PytorchReachability.PyHJ.utils.net.common import Net
-from PytorchReachability.PyHJ.utils.net.continuous import Actor, Critic
-from PytorchReachability.PyHJ.policy import avoid_DDPGPolicy_annealing as DDPGPolicy
+from PytorchReachability.PyHJ.utils.net.continuous import ActorProb, Critic
+from PyHJ.policy import avoid_SACPolicy_annealing as SACPolicy
 import pathlib, argparse, sys, gym, os
 # from dubin_render import state_to_image_pil_hq
 from dubin_multiobs_render import state_to_image_pil_hq
@@ -14,16 +14,14 @@ cwd = os.getcwd()
 print(cwd)
 
 dreamer_dir = 'PytorchReachability/dreamerv3-torch'
-ckpt_path = 'logs/dreamer_dubins_gap/rssm_ckpt.pt'
-# policy_path = 'logs/dreamer_dubins_gap/PyHJ/0709/234357/PyHJ/dubins-wm-gap/wm_actor_activation_ReLU_critic_activation_ReLU_game_gd_steps_1_tau_0.005_training_num_1_buffer_size_40000_c_net_128_3_a1_128_3_gamma_0.9999/noise_0.1_actor_lr_0.0001_critic_lr_0.001_batch_512_step_per_epoch_40000_kwargs_{}_seed_0/epoch_id_16/policy.pth'
-# policy_path = 'logs/dreamer_dubins_gap_crv1/PyHJ/0709/234357/PyHJ/dubins-wm-gap/wm_actor_activation_ReLU_critic_activation_ReLU_game_gd_steps_1_tau_0.005_training_num_1_buffer_size_40000_c_net_128_3_a1_128_3_gamma_0.9999/noise_0.1_actor_lr_0.0001_critic_lr_0.001_batch_512_step_per_epoch_40000_kwargs_{}_seed_0/epoch_id_8/policy.pth'
-# policy_path = 'logs/dreamer_dubins_gap/PyHJ/0723/000911/PyHJ/dubins-wm-gap/wm_actor_activation_ReLU_critic_activation_ReLU_game_gd_steps_1_tau_0.005_training_num_1_buffer_size_40000_c_net_128_3_a1_128_3_gamma_0.9999/noise_0.1_actor_lr_0.0001_critic_lr_0.001_batch_512_step_per_epoch_40000_kwargs_{}_seed_0/epoch_id_3/policy.pth'
-policy_path = 'logs/dreamer_dubins_gap/PyHJ/0912/014009/PyHJ/dubins-wm-gap/wm_actor_activation_ReLU_critic_activation_ReLU_game_gd_steps_1_tau_0.005_training_num_1_buffer_size_40000_c_net_128_3_a1_128_3_gamma_0.9999/noise_0.1_actor_lr_0.0001_critic_lr_0.001_batch_512_step_per_epoch_40000_kwargs_{}_seed_0/epoch_id_15/policy.pth'
-config_path = 'PytorchReachability/configs_gap.yaml'
+ckpt_path = 'logs/dreamer_dubins_gamma0.75_reluWt1_zeroSum0.01_gpWt10_old_cont/rssm_ckpt_17999.pt'
+# policy_path = 'logs/dreamer_dubins_gap/PyHJ/0912/014009/PyHJ/dubins-wm-gap/wm_actor_activation_ReLU_critic_activation_ReLU_game_gd_steps_1_tau_0.005_training_num_1_buffer_size_40000_c_net_128_3_a1_128_3_gamma_0.9999/noise_0.1_actor_lr_0.0001_critic_lr_0.001_batch_512_step_per_epoch_40000_kwargs_{}_seed_0/epoch_id_3/policy.pth'
+policy_path = '/home/clown2/Desktop/Work/Research/wm_cbf/logs/dreamer_dubins_gap/PyHJ/0912/143516/PyHJ/dubins-wm-gap/wm_actor_activation_ReLU_critic_activation_ReLU_game_gd_steps_1_tau_0.005_training_num_1_buffer_size_40000_c_net_128_3_a1_128_3_gamma_0.9999/noise_0.1_actor_lr_0.0001_critic_lr_0.001_batch_512_step_per_epoch_40000_kwargs_{}_seed_0/epoch_id_14/policy.pth'
+config_path = 'PytorchReachability/configs_gap_sac.yaml'
 
 sys.path.append(os.path.abspath(dreamer_dir))
 import tools
-import models_old as models
+import models
 
 def recursive_update(base, update):
     for key, value in update.items():
@@ -146,10 +144,18 @@ class LatentDubinGap:
         """
         Use the safe value function to find the value for a given state.
         """
-        tmp_obs = np.array(state).reshape(state.shape[0],state.shape[-1])
+        # tmp_obs = np.array(state).reshape(state.shape[0],state.shape[-1])
+        # tmp_batch = Batch(obs = tmp_obs, info = Batch())
+        # tmp = self.policy.critic(tmp_batch.obs, self.policy(tmp_batch, model="actor_old").act)
+        # return tmp.cpu().detach().numpy().flatten()
+    
+        tmp_obs = np.array(state)#.reshape(1,-1)
         tmp_batch = Batch(obs = tmp_obs, info = Batch())
-        tmp = self.policy.critic(tmp_batch.obs, self.policy(tmp_batch, model="actor_old").act)
+        ac = self.policy(tmp_batch, model="actor_old").act
+        tmp = torch.min(self.policy.critic1(tmp_batch.obs, ac),
+                        self.policy.critic2(tmp_batch.obs, ac))
         return tmp.cpu().detach().numpy().flatten()
+
     
     def evaluate_Q(self, state, action):
         """
@@ -157,7 +163,9 @@ class LatentDubinGap:
         """
         tmp_obs = np.array(state).reshape(state.shape[0],state.shape[-1])
         tmp_batch = Batch(obs = tmp_obs, info = Batch())
-        tmp = self.policy.critic(tmp_batch.obs, action)
+        # tmp = self.policy.critic(tmp_batch.obs, action)
+        tmp = torch.min(self.policy.critic1(tmp_batch.obs, action),
+                        self.policy.critic2(tmp_batch.obs, action))
         return tmp.cpu().detach().numpy().flatten()
     
     def _init_wm(self):
@@ -210,41 +218,50 @@ class LatentDubinGap:
         actor_activation = activation_map.get(args.actor_activation)
         critic_activation = activation_map.get(args.critic_activation)
 
-        assert args.critic_net is not None, "Please provide critic_net!"
-        critic_net = Net(
-            args.state_shape,
-            args.action_shape,
-            hidden_sizes=args.critic_net,
-            activation=critic_activation,
-            concat=True,
-            device=args.device
+        if config.critic_net is not None:
+            critic_net1 = Net(
+                config.state_shape,
+                config.action_shape,
+                hidden_sizes=config.critic_net,
+                activation=critic_activation,
+                concat=True,
+                device=config.device
             )
+            critic_net2 = Net(
+                config.state_shape,
+                config.action_shape,
+                hidden_sizes=config.critic_net,
+                activation=critic_activation,
+                concat=True,
+                device=config.device
+            )
+        else:
+            # report error:
+            raise ValueError("Please provide critic_net!")
 
-        critic = Critic(critic_net, device=args.device).to(args.device)
-        critic_optim = torch.optim.Adam(critic.parameters(), lr=args.critic_lr)
-        
-        actor_net = Net(args.state_shape, 
-                        hidden_sizes=args.control_net,
-                        activation=actor_activation, 
-                        device=args.device)
-        actor = Actor(actor_net, 
-                    args.action_shape, 
-                    max_action=args.max_action, 
-                    device=args.device).to(args.device)
-        actor_optim = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
+        critic1 = Critic(critic_net1, device=config.device).to(config.device)
+        critic1_optim = torch.optim.Adam(critic1.parameters(), lr=config.critic_lr)
+        critic2 = Critic(critic_net2, device=config.device).to(config.device)
+        critic2_optim = torch.optim.Adam(critic2.parameters(), lr=config.critic_lr)
 
-        policy = DDPGPolicy(
-            critic,
-            critic_optim,
-            tau=args.tau,
-            gamma=args.gamma_pyhj,
-            exploration_noise=GaussianNoise(sigma=args.exploration_noise),
-            reward_normalization=args.rew_norm,
-            estimation_step=args.n_step,
+        actor1_net = Net(config.state_shape, hidden_sizes=config.control_net, activation=actor_activation, device=config.device)
+        actor1 = ActorProb(actor1_net, config.action_shape, max_action=config.max_action, device=config.device).to(config.device)
+        actor1_optim = torch.optim.Adam(actor1.parameters(), lr=config.actor_lr)
+
+        policy = SACPolicy(
+            critic1,
+            critic1_optim,
+            critic2,
+            critic2_optim,
+            tau=config.tau,
+            gamma=config.gamma_pyhj,
+            alpha = config.alpha,
+            exploration_noise= None,#GaussianNoise(sigma=args.exploration_noise), # careful!
+            deterministic_eval = True,
+            estimation_step=config.n_step,
             action_space=action_space,
-            actor=actor,
-            actor_optim=actor_optim,
-            actor_gradient_steps=args.actor_gradient_steps,
+            actor1=actor1,
+            actor1_optim=actor1_optim,
             )
 
         # load policy
@@ -283,7 +300,7 @@ class LatentDubinGap:
         return feat
     
     def margin_fn(self, feat):
-        return torch.tanh(self.wm.heads["margin"](feat))
+        return torch.tanh(self.wm.heads["margin_gp"](feat))
     
     def priv_state_to_V(self, state):
         s_curr = state
@@ -301,6 +318,7 @@ class LatentDubinGap:
         for k, v in latent.items(): latent[k] = v[:, [-1]]
         feat = self.wm.dynamics.get_feat(latent).detach().cpu().numpy() 
         value = self.evaluate_V(feat)
+        # lz = self.margin_fn(torch.tensor(feat, dtype=torch.float32, device='cuda:0'))
         return value
 
 

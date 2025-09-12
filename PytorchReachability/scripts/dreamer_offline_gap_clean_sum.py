@@ -313,11 +313,11 @@ class Dreamer(nn.Module):
                 if pos.numel() > 0:
                     pos_mean = pos.mean()
                     zero_sum_loss -= pos_mean
-                    relu_loss += torch.relu(gamma - pos).mean()
+                    relu_loss += torch.relu(gamma - pos).sum()
                 if neg.numel() >0:
                     neg_mean = neg.mean()
                     zero_sum_loss += neg_mean
-                    relu_loss += torch.relu(gamma + neg).mean()
+                    relu_loss += torch.relu(gamma + neg).sum()
                 # print(neg.numel(), pos.numel())
                 relu_weight = args.relu_weight
                 gp_weight = args.gp_weight

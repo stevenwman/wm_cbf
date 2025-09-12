@@ -14,16 +14,13 @@ cwd = os.getcwd()
 print(cwd)
 
 dreamer_dir = 'PytorchReachability/dreamerv3-torch'
-ckpt_path = 'logs/dreamer_dubins_gap/rssm_ckpt.pt'
-# policy_path = 'logs/dreamer_dubins_gap/PyHJ/0709/234357/PyHJ/dubins-wm-gap/wm_actor_activation_ReLU_critic_activation_ReLU_game_gd_steps_1_tau_0.005_training_num_1_buffer_size_40000_c_net_128_3_a1_128_3_gamma_0.9999/noise_0.1_actor_lr_0.0001_critic_lr_0.001_batch_512_step_per_epoch_40000_kwargs_{}_seed_0/epoch_id_16/policy.pth'
-# policy_path = 'logs/dreamer_dubins_gap_crv1/PyHJ/0709/234357/PyHJ/dubins-wm-gap/wm_actor_activation_ReLU_critic_activation_ReLU_game_gd_steps_1_tau_0.005_training_num_1_buffer_size_40000_c_net_128_3_a1_128_3_gamma_0.9999/noise_0.1_actor_lr_0.0001_critic_lr_0.001_batch_512_step_per_epoch_40000_kwargs_{}_seed_0/epoch_id_8/policy.pth'
-# policy_path = 'logs/dreamer_dubins_gap/PyHJ/0723/000911/PyHJ/dubins-wm-gap/wm_actor_activation_ReLU_critic_activation_ReLU_game_gd_steps_1_tau_0.005_training_num_1_buffer_size_40000_c_net_128_3_a1_128_3_gamma_0.9999/noise_0.1_actor_lr_0.0001_critic_lr_0.001_batch_512_step_per_epoch_40000_kwargs_{}_seed_0/epoch_id_3/policy.pth'
-policy_path = 'logs/dreamer_dubins_gap/PyHJ/0912/014009/PyHJ/dubins-wm-gap/wm_actor_activation_ReLU_critic_activation_ReLU_game_gd_steps_1_tau_0.005_training_num_1_buffer_size_40000_c_net_128_3_a1_128_3_gamma_0.9999/noise_0.1_actor_lr_0.0001_critic_lr_0.001_batch_512_step_per_epoch_40000_kwargs_{}_seed_0/epoch_id_15/policy.pth'
-config_path = 'PytorchReachability/configs_gap.yaml'
+ckpt_path = 'logs/dreamer_dubins_gamma0.75_reluWt1_zeroSum0.01_gpWt10_old_cont/rssm_ckpt_17999.pt'
+policy_path = 'logs/dreamer_dubins_gap/PyHJ/0912/031649/PyHJ/dubins-wm-gap/wm_actor_activation_ReLU_critic_activation_ReLU_game_gd_steps_1_tau_0.005_training_num_1_buffer_size_40000_c_net_128_3_a1_128_3_gamma_0.9999/noise_0.1_actor_lr_0.0001_critic_lr_0.001_batch_512_step_per_epoch_40000_kwargs_{}_seed_0/epoch_id_5/policy.pth'
+config_path = 'PytorchReachability/configs_gap_ddpg.yaml'
 
 sys.path.append(os.path.abspath(dreamer_dir))
 import tools
-import models_old as models
+import models
 
 def recursive_update(base, update):
     for key, value in update.items():
@@ -283,7 +280,7 @@ class LatentDubinGap:
         return feat
     
     def margin_fn(self, feat):
-        return torch.tanh(self.wm.heads["margin"](feat))
+        return torch.tanh(self.wm.heads["margin_gp"](feat))
     
     def priv_state_to_V(self, state):
         s_curr = state
