@@ -65,13 +65,10 @@ class Dubins_WM_gap_nogp_Env(gym.Env):
         init = {k: v[:, -1] for k, v in self.latent.items()}
         ac_torch = torch.tensor([[action]], dtype=torch.float32).to(self.device)*self.turnRate
         self.latent = self.wm.dynamics.imagine_with_action(ac_torch, init)
-        rew, cont = self.safety_margin(self.latent) # rew is negative if unsafe
+        rew = self.safety_margin(self.latent) # rew is negative if unsafe
         
         self.feat = self.wm.dynamics.get_feat(self.latent).detach().cpu().numpy()
-        if cont < 0.75:
-            terminated = True
-        else:
-            terminated = False
+        terminated = False
         truncated = False
         info = {"is_first":False, "is_terminal":terminated}
         return np.copy(self.feat), rew, terminated, truncated, info
@@ -94,11 +91,10 @@ class Dubins_WM_gap_nogp_Env(gym.Env):
         g_xList = []
         
         feat = self.wm.dynamics.get_feat(state).detach()
-        cont = self.wm.heads["cont"](feat)
+        # cont = self.wm.heads["cont"](feat)
         with torch.no_grad():  # Disable gradient calculation
-            outputs = torch.tanh(self.wm.heads["margin"](feat))
+            outputs = torch.tanh(self.wm.heads["margin_nogp"](feat))
             g_xList.append(outputs.detach().cpu().numpy())
         
         safety_margin = np.array(g_xList).squeeze()
-        return safety_margin, cont.mean.squeeze().detach().cpu().numpy()
-    
+        return safety_margin

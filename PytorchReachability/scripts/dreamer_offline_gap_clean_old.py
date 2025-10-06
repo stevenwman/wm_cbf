@@ -100,9 +100,9 @@ class Args:
     initial: str = 'learned'
 
 
-    batch_size: int = 32
-    batch_length: int = 16
-    train_ratio: int = 64
+    batch_size: int = 16
+    batch_length: int = 64
+    train_ratio: int = 512
     model_lr: float = 1e-4
     opt_eps: float = 1e-8
     grad_clip: int = 1000
@@ -334,13 +334,22 @@ class Dreamer(nn.Module):
             with torch.amp.autocast("cuda", enabled=wm._use_amp):
                 pos = wm.heads["margin_nogp"](safe_dataset)
                 neg = wm.heads["margin_nogp"](unsafe_dataset)
-                # gamma = self._args.gamma_lx
-                gamma = 0.75
+                gamma = self._args.gamma_lx
+                # gamma = 1
                 lx_loss = 0.0
+
+                relu_loss_nogp = torch.tensor(0., device=pos.device)
+                zero_sum_loss_nogp = torch.tensor(0., device=pos.device)
                 if pos.numel() > 0:
-                    lx_loss += torch.relu(gamma - pos).mean()
-                if neg.numel() > 0:
-                    lx_loss += torch.relu(gamma + neg).mean()
+                    pos_mean = pos.mean()
+                    zero_sum_loss_nogp -= pos_mean
+                    relu_loss_nogp += torch.relu(gamma - pos).mean()
+                if neg.numel() >0:
+                    neg_mean = neg.mean()
+                    zero_sum_loss_nogp += neg_mean
+                    relu_loss_nogp += torch.relu(gamma + neg).mean()
+
+                lx_loss = relu_weight * relu_loss_nogp + zero_sum_weight * zero_sum_loss_nogp
 
                 metrics["margin_nogp"] = lx_loss.item()
                 metrics.update(wm.margin_nogp_opt(lx_loss, wm.heads["margin_nogp"].parameters()))

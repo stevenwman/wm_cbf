@@ -72,7 +72,7 @@ def get_args():
 
     yml = yaml.YAML(typ="safe", pure=True)
     configs = yml.load(
-        (pathlib.Path(sys.argv[0]).parent / "../configs_gap_gp_clean.yaml").read_text()
+        (pathlib.Path(sys.argv[0]).parent / "../configs_gap_nogp_clean.yaml").read_text()
     )
 
     name_list = ["defaults", *config.configs] if config.configs else ["defaults"]

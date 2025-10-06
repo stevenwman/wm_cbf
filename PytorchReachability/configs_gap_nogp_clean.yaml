@@ -14,17 +14,16 @@ defaults:
 
   # offline data parameters
   data_length: 100
-  # num_trajs: 400 # 2000 in paper
-  # num_train_trajs: 380 #1900 in paper
   num_trajs: 4000 # 2000 in paper
   num_train_trajs: 3800 #1900 in paper
   size: [128, 128]
   dataset_path: 'wm_demos128_gap.pkl' # '128' should be the same as the size above
   
   # offline dreamer parameters, these are from https://github.com/NM512/dreamerv3-torch
-  logdir: 'logs/dreamer_dubins_gap' 
-  rssm_ckpt_path: logs/dreamer_dubins_gap/rssm_ckpt.pt # change this to whatever the path to your rssm checkpoint is
-  # rssm_ckpt_path: 'logs/dreamer_dubins_gamma0.75_reluWt1_zeroSum0.01_gpWt10_old_cont/rssm_ckpt_17999.pt'
+  logdir: 'logs/dreamer_dubins_gap_nogp' 
+  # rssm_ckpt_path: logs/dreamer_dubins_gap_nogp/rssm_ckpt.pt # change this to whatever the path to your rssm checkpoint is
+  # rssm_ckpt_path: 'logs/dreamer_dubins_gamma0.75_reluWt1_zeroSum0.01_gpWt10_old_cont/rssm_ckpt_17499.pt'
+  rssm_ckpt_path: 'logs/dreamer_dubins_gamma0.75_reluWt1_zeroSum0.01_gpWt10_old_cont_retry2/rssm_ckpt_37999.pt'
   traindir: null
   evaldir: null
   offline_traindir: ''
@@ -37,7 +36,7 @@ defaults:
   eval_episode_num: 10
   log_every: 5e2
   reset_every: 0
-  device: 'cuda:0'
+  device: 'cuda:1'
   compile: True
   precision: 32
   debug: False
@@ -46,7 +45,7 @@ defaults:
   rssm_train_steps: 10000 # 100000 in paper
   
   # Environment
-  task: 'dubins-wm-gap'
+  task: 'dubins-wm-gap-nogp'
   envs: 1
   action_repeat: 1
   time_limit: 100
@@ -63,7 +62,7 @@ defaults:
   dyn_mean_act: 'none'
   dyn_std_act: 'sigmoid2'
   dyn_min_std: 0.1
-  grad_heads: ['decoder', "cont"]
+  grad_heads: ['decoder']
   units: 512
   act: 'SiLU'
   norm: True
@@ -75,8 +74,8 @@ defaults:
     {layers: 2, dist: 'normal', entropy: 3e-4, unimix_ratio: 0.01, std: 'learned', min_std: 0.1, max_std: 1.0, temp: 0.1, lr: 3e-5, eps: 1e-5, grad_clip: 100.0, outscale: 1.0}
   critic:
     {layers: 2, dist: 'symlog_disc', slow_target: True, slow_target_update: 1, slow_target_fraction: 0.02, lr: 3e-5, eps: 1e-5, grad_clip: 100.0, outscale: 0.0}
-  # reward_head:
-  #   {layers: 2, dist: 'symlog_disc', loss_scale: 1.0, outscale: 0.0}
+  reward_head:
+    {layers: 2, dist: 'symlog_disc', loss_scale: 1.0, outscale: 0.0}
   cont_head:
     {layers: 2, loss_scale: 1.0, outscale: 1.0}
   # new

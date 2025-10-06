@@ -195,7 +195,7 @@ class LatentDubinGap:
         args.max_action = u_max
 
         # seed
-        np.random.seed(args.seed)
+        # np.random.seed(args.seed)
         torch.manual_seed(args.seed)
 
         activation_map = {
